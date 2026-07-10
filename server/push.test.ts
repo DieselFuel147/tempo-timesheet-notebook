@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type { Day, Entry, WorklogInput, DryRunSummary, PlannedRequest } from '../shared/types'
 import { pushDay, type PushRepo } from './push'
+import { defaultSettings } from '../shared/settings'
 
 function entry(o: Partial<Entry>): Entry {
   return {
@@ -19,6 +20,7 @@ function entry(o: Partial<Entry>): Entry {
 function fakeRepo(entries: Entry[]) {
   const day: Day = { date: '2025-05-09', notes: '', entries }
   const cache = new Map<string, string>()
+  const state = { getSettingsCalls: 0 }
   const repo: PushRepo = {
     getDay: () => day,
     markSynced: (id, wid) => {
@@ -27,8 +29,12 @@ function fakeRepo(entries: Entry[]) {
     },
     getCachedIssueId: (k) => cache.get(k) ?? null,
     cacheIssue: (k, id) => cache.set(k, id),
+    getSettings: () => {
+      state.getSettingsCalls++
+      return defaultSettings
+    },
   }
-  return { repo, day }
+  return { repo, day, state }
 }
 
 function fakeClients() {
@@ -124,6 +130,13 @@ describe('pushDay', () => {
     expect(res.blocked.length).toBeGreaterThan(0)
     expect(res.planned).toHaveLength(0)
     expect(state.created).toHaveLength(0)
+  })
+
+  it('validates against the stored settings (single source of validation config)', async () => {
+    const { repo, state } = fakeRepo([entry({ id: 'a', start: '09:00', end: '09:30' })])
+    const { jira, tempo } = fakeClients()
+    await pushDay('2025-05-09', jira, tempo, repo)
+    expect(state.getSettingsCalls).toBeGreaterThan(0)
   })
 
   it('records a per-entry error without aborting the rest', async () => {

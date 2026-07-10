@@ -40,4 +40,13 @@ db.exec(`
     summary TEXT NOT NULL DEFAULT '',
     cached_at TEXT NOT NULL
   );
+
+  -- App settings as JSON blobs keyed by section (currently just 'app'). A single
+  -- document per key keeps this forward-compatible: new fields fall back to
+  -- defaults on read (see repo.getSettings / shared mergeSettings).
+  CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
 `)

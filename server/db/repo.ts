@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { db } from './index'
 import type { Day, Entry } from '../../shared/types'
+import { defaultSettings, mergeSettings, type Settings } from '../../shared/settings'
 
 interface EntryRow {
   id: string
@@ -115,4 +116,29 @@ export function cacheIssue(key: string, issueId: string, summary: string): void 
     `INSERT INTO issue_cache (key, issue_id, summary, cached_at) VALUES (?, ?, ?, ?)
      ON CONFLICT(key) DO UPDATE SET issue_id = excluded.issue_id, summary = excluded.summary, cached_at = excluded.cached_at`,
   ).run(key, issueId, summary, now())
+}
+
+const SETTINGS_KEY = 'app'
+
+/** Read app settings, merged over current defaults (returns defaults if never saved). */
+export function getSettings(): Settings {
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(SETTINGS_KEY) as
+    | { value: string }
+    | undefined
+  if (!row) return defaultSettings
+  try {
+    return mergeSettings(JSON.parse(row.value))
+  } catch {
+    return defaultSettings
+  }
+}
+
+/** Persist app settings (merged over defaults first). Returns the stored result. */
+export function saveSettings(settings: Settings): Settings {
+  const merged = mergeSettings(settings)
+  db.prepare(
+    `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+  ).run(SETTINGS_KEY, JSON.stringify(merged), now())
+  return merged
 }

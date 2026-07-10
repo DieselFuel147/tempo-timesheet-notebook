@@ -10,6 +10,7 @@ import type {
   DryRunSummary,
 } from '../shared/types'
 import { validateDay } from '../shared/validation'
+import { defaultSettings, toValidationConfig, type Settings } from '../shared/settings'
 import { toWorklogInput } from '../shared/worklog'
 import * as realRepo from './db/repo'
 
@@ -28,6 +29,8 @@ export interface PushRepo {
   markSynced(id: string, tempoWorklogId: number): void
   getCachedIssueId(key: string): string | null
   cacheIssue(key: string, issueId: string, summary: string): void
+  /** Stored validation config; optional so lightweight fakes can omit it. */
+  getSettings?(): Settings
 }
 
 /**
@@ -59,7 +62,10 @@ export async function pushDay(
   const dryRun = opts.dryRun ?? false
   const day = repo.getDay(date)
 
-  const errors = validateDay(day.entries).filter((i) => i.level === 'error')
+  // Gate against the user's stored config, so the server validates with exactly
+  // the same rules the UI shows. (Falls back to defaults for bare fakes.)
+  const config = toValidationConfig(repo.getSettings?.() ?? defaultSettings)
+  const errors = validateDay(day.entries, config).filter((i) => i.level === 'error')
   if (errors.length > 0) {
     const blocked = errors.map((e) => e.message)
     return dryRun

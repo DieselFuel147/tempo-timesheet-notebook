@@ -5,6 +5,7 @@ import type { JiraClient } from './jira/client'
 import type { TempoClient } from './tempo/client'
 import * as repo from './db/repo'
 import { pushDay } from './push'
+import { thresholdSchema } from '../shared/settings'
 
 export interface RouteDeps {
   jira: JiraClient
@@ -61,6 +62,19 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
   })
 
   app.get('/api/dates', async () => repo.listDates())
+
+  // App settings (validation thresholds today; more sections later).
+  app.get('/api/settings', async () => repo.getSettings())
+
+  app.put('/api/settings', async (req, reply) => {
+    const body = z.object({ validation: z.unknown() }).parse(req.body)
+    const parsed = thresholdSchema.safeParse(body.validation)
+    if (!parsed.success) {
+      reply.code(400)
+      return { error: parsed.error.issues.map((i) => i.message).join('; ') }
+    }
+    return repo.saveSettings({ validation: parsed.data })
+  })
 
   // Push a whole day to Tempo. Idempotent — already-synced entries are skipped.
   // ?dryRun=true builds and returns the requests without sending anything.
