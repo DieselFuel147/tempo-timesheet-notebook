@@ -52,6 +52,7 @@ export function EntryRow({ entry, issues, onPatch, onDelete }: Props) {
           value={entry.ticketKey}
           invalid={ticketInvalid}
           onChange={(ticketKey) => onPatch({ ticketKey })}
+          onAdmin={() => onPatch({ ticketKey: defaultConfig.adminTicket })}
         />
 
         <input
@@ -68,14 +69,6 @@ export function EntryRow({ entry, issues, onPatch, onDelete }: Props) {
               ✓ Tempo
             </span>
           )}
-          <button
-            type="button"
-            className="admin-btn"
-            title={`Log as general admin (${defaultConfig.adminTicket})`}
-            onClick={() => onPatch({ ticketKey: defaultConfig.adminTicket })}
-          >
-            Admin
-          </button>
           <button type="button" className="delete-btn" title="Delete entry" onClick={onDelete}>
             ×
           </button>

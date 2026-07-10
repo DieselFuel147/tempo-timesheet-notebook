@@ -192,7 +192,7 @@ textarea:focus {
   gap: 4px;
 }
 .times input[type='time'] {
-  width: 108px;
+  width: 125px;
 }
 .dash {
   color: var(--muted);
@@ -210,17 +210,6 @@ textarea:focus {
 .entry-actions {
   display: flex;
   gap: 4px;
-}
-.admin-btn {
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 6px 8px;
-  color: var(--muted);
-}
-.admin-btn:hover {
-  color: var(--text);
-  border-color: var(--accent);
 }
 .delete-btn {
   background: transparent;
@@ -286,14 +275,51 @@ textarea:focus {
 .ticket-field {
   position: relative;
 }
+.ticket-field-group {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  overflow: hidden;
+}
+.ticket-field-group:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+.ticket-field-group.invalid {
+  border-color: var(--error);
+}
 .ticket-input {
-  width: 130px;
+  width: 148px;
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   text-transform: uppercase;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  outline: none;
 }
-.ticket-input.invalid {
-  border-color: var(--error);
+.ticket-field-group.invalid .ticket-input {
   color: var(--error);
+}
+.admin-icon-btn {
+  display: flex;
+  align-items: center;
+  padding: 0 7px;
+  border: none;
+  border-left: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+.admin-icon-btn:hover {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.ticket-field-group.invalid .admin-icon-btn {
+  border-left-color: var(--error);
 }
 .ticket-suggestions {
   position: absolute;

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import PsychologyIcon from '@mui/icons-material/Psychology'
 import { api, type TicketSuggestion } from './api'
 import { defaultConfig } from '../shared/validation'
 
@@ -6,12 +7,13 @@ interface Props {
   value: string
   invalid: boolean
   onChange: (key: string) => void
+  onAdmin: () => void
 }
 
 // Ticket input with debounced Jira autocomplete. Turns red when the value is
 // non-empty but not a valid key. Autocomplete is best-effort: if Jira isn't
 // reachable, the field still works as a plain text input.
-export function TicketField({ value, invalid, onChange }: Props) {
+export function TicketField({ value, invalid, onChange, onAdmin }: Props) {
   const [open, setOpen] = useState(false)
   const [suggestions, setSuggestions] = useState<TicketSuggestion[]>([])
   const [active, setActive] = useState(0)
@@ -61,21 +63,30 @@ export function TicketField({ value, invalid, onChange }: Props) {
 
   return (
     <div className="ticket-field" ref={boxRef}>
-      <input
-        className={invalid ? 'ticket-input invalid' : 'ticket-input'}
-        value={value}
-        placeholder="ABC-123"
-        spellCheck={false}
-        autoCapitalize="characters"
-        onChange={(e) => {
-          onChange(e.target.value.toUpperCase())
-          setOpen(true)
-          setActive(0)
-        }}
-        onFocus={() => setOpen(true)}
-        onKeyDown={onKeyDown}
-        title={value === defaultConfig.adminTicket ? 'General admin ticket' : undefined}
-      />
+      <div className={invalid ? 'ticket-field-group invalid' : 'ticket-field-group'}>
+        <input
+          className="ticket-input"
+          value={value}
+          placeholder="ABC-123"
+          spellCheck={false}
+          autoCapitalize="characters"
+          onChange={(e) => {
+            onChange(e.target.value.toUpperCase())
+            setOpen(true)
+            setActive(0)
+          }}
+          onFocus={() => setOpen(true)}
+          onKeyDown={onKeyDown}
+        />
+        <button
+          type="button"
+          className="admin-icon-btn"
+          title={`Log as general admin (${defaultConfig.adminTicket})`}
+          onClick={onAdmin}
+        >
+          <PsychologyIcon sx={{ fontSize: 18 }} />
+        </button>
+      </div>
       {open && suggestions.length > 0 && (
         <ul className="ticket-suggestions">
           {suggestions.map((s, i) => (
