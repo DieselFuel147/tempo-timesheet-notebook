@@ -1,4 +1,5 @@
 import type { Day, Entry, JiraProfile, PushSummary, DryRunSummary } from '../shared/types'
+import type { Settings, ThresholdSettings } from '../shared/settings'
 
 async function parse<T>(res: Response): Promise<T> {
   const text = await res.text()
@@ -50,4 +51,11 @@ export const api = {
     fetch(`/api/day/${date}/push?dryRun=true`, { method: 'POST' }).then((r) =>
       parse<DryRunSummary>(r),
     ),
+  getSettings: () => fetch('/api/settings').then((r) => parse<Settings>(r)),
+  saveSettings: (validation: ThresholdSettings) =>
+    fetch('/api/settings', {
+      method: 'PUT',
+      headers: jsonHeaders,
+      body: JSON.stringify({ validation }),
+    }).then((r) => parse<Settings>(r)),
 }

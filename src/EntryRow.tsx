@@ -1,17 +1,18 @@
 import type { Entry } from '../shared/types'
 import type { ValidationIssue } from '../shared/validation'
-import { entryDurationMinutes, defaultConfig } from '../shared/validation'
+import { entryDurationMinutes } from '../shared/validation'
 import { formatHours } from './dateutil'
 import { TicketField } from './TicketField'
 
 interface Props {
   entry: Entry
   issues: ValidationIssue[]
+  adminTicket: string
   onPatch: (patch: Partial<Entry>) => void
   onDelete: () => void
 }
 
-export function EntryRow({ entry, issues, onPatch, onDelete }: Props) {
+export function EntryRow({ entry, issues, adminTicket, onPatch, onDelete }: Props) {
   const errors = issues.filter((i) => i.level === 'error')
   const warnings = issues.filter((i) => i.level === 'warning')
   const ticketInvalid = errors.some((i) => i.code === 'INVALID_TICKET')
@@ -52,7 +53,7 @@ export function EntryRow({ entry, issues, onPatch, onDelete }: Props) {
           value={entry.ticketKey}
           invalid={ticketInvalid}
           onChange={(ticketKey) => onPatch({ ticketKey })}
-          onAdmin={() => onPatch({ ticketKey: defaultConfig.adminTicket })}
+          onAdmin={() => onPatch({ ticketKey: adminTicket })}
         />
 
         <input

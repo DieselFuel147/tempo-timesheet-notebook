@@ -448,3 +448,92 @@ textarea:focus {
   overflow-x: auto;
   white-space: pre;
 }
+
+/* Icon button (topbar gear, settings back arrow) */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 6px;
+  line-height: 0;
+}
+.icon-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Settings page */
+.settings-page {
+  max-width: 640px;
+}
+.settings-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.settings-group {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px 18px;
+  margin: 0 0 18px;
+}
+.settings-group legend {
+  padding: 0 6px;
+  font-weight: 600;
+}
+.settings-hint {
+  color: var(--muted);
+  font-size: 0.82rem;
+  margin: 0 0 14px;
+}
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+  flex: 1 1 0;
+  min-width: 0;
+}
+.settings-field label {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.settings-row {
+  display: flex;
+  gap: 14px;
+}
+.field-note {
+  display: block;
+  font-size: 0.76rem;
+  color: var(--muted);
+  margin: -6px 0 14px;
+}
+.settings-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.settings-status {
+  color: var(--ok);
+  font-size: 0.85rem;
+  margin-left: auto;
+}
+.reset-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 8px 12px;
+}
+.reset-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}

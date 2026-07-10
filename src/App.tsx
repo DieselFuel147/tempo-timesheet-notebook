@@ -1,15 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
+import SettingsIcon from '@mui/icons-material/Settings'
 import type { Day, Entry, JiraProfile, PushSummary, DryRunSummary } from '../shared/types'
 import {
   validateDay,
   entryDurationMinutes,
   parseTime,
-  defaultConfig,
   type ValidationIssue,
 } from '../shared/validation'
+import { defaultSettings, toValidationConfig, type Settings as AppSettings } from '../shared/settings'
 import { api } from './api'
 import { addDays, todayISO, prettyDate, minutesToHHmm, formatHours } from './dateutil'
 import { EntryRow } from './EntryRow'
+import { Settings } from './Settings'
 
 export function App() {
   const [profile, setProfile] = useState<JiraProfile | null>(null)
@@ -20,6 +22,8 @@ export function App() {
   const [pushing, setPushing] = useState(false)
   const [pushResult, setPushResult] = useState<PushSummary | null>(null)
   const [plan, setPlan] = useState<DryRunSummary | null>(null)
+  const [settings, setSettings] = useState<AppSettings>(defaultSettings)
+  const [showSettings, setShowSettings] = useState(false)
 
   // Mirror of `day` for event handlers, to avoid stale-closure reads.
   const dayRef = useRef<Day | null>(null)
@@ -32,6 +36,7 @@ export function App() {
 
   useEffect(() => {
     api.profile().then(setProfile).catch(() => setProfile(null))
+    api.getSettings().then(setSettings).catch(() => setSettings(defaultSettings))
   }, [])
 
   useEffect(() => {
@@ -157,7 +162,8 @@ export function App() {
   }
 
   const entries = day?.entries ?? []
-  const allIssues = validateDay(entries, defaultConfig)
+  const config = toValidationConfig(settings)
+  const allIssues = validateDay(entries, config)
   const issuesByEntry = new Map<string, ValidationIssue[]>()
   const dayIssues: ValidationIssue[] = []
   for (const iss of allIssues) {
@@ -194,6 +200,14 @@ export function App() {
     return curStart - prevEnd > 0 ? curStart - prevEnd : null
   }
 
+  if (showSettings) {
+    return (
+      <div className="page">
+        <Settings settings={settings} onSaved={setSettings} onClose={() => setShowSettings(false)} />
+      </div>
+    )
+  }
+
   return (
     <div className="page">
       <header className="topbar">
@@ -213,6 +227,15 @@ export function App() {
           </button>
           <button type="button" className="today-btn" onClick={() => setDate(todayISO())}>
             Today
+          </button>
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={() => setShowSettings(true)}
+            title="Settings"
+            aria-label="Settings"
+          >
+            <SettingsIcon fontSize="small" />
           </button>
         </div>
       </header>
@@ -238,6 +261,7 @@ export function App() {
                   <EntryRow
                     entry={entry}
                     issues={issuesByEntry.get(entry.id) ?? []}
+                    adminTicket={config.adminTicket}
                     onPatch={(patch) => patchEntry(entry.id, patch)}
                     onDelete={() => deleteEntry(entry.id)}
                   />
