@@ -1,14 +1,19 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// The React app runs on 5173 in dev and proxies API calls to the Fastify
-// backend on 3000, so the browser only ever talks to one origin.
+// The React app runs on the Vite dev server (PORT, default 5173) and proxies
+// API calls to the Fastify backend (API_PORT, default 3000), so the browser
+// only ever talks to one origin.
+const uiPort = Number(process.env.PORT) || 5173
+const apiPort = Number(process.env.API_PORT) || 3000
+
 export default defineConfig({
   plugins: [react()],
   server: {
-    port: 5173,
+    port: uiPort,
+    strictPort: true,
     proxy: {
-      '/api': 'http://localhost:3000',
+      '/api': `http://localhost:${apiPort}`,
     },
   },
 })

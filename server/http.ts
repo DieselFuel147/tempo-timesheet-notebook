@@ -85,7 +85,10 @@ export async function requestJson<T>(req: JsonRequest): Promise<T> {
       }
 
       const detail = code ?? name ?? (err as Error)?.message ?? String(err)
-      throw new Error(`${tag} -> connection failed after ${attempt} attempt(s): ${detail}`)
+      const hint = /CERT|SELF_SIGNED/i.test(String(detail))
+        ? ' — TLS trust error; run with NODE_USE_SYSTEM_CA=1 so Node trusts your system/corporate CA (the npm scripts already do)'
+        : ''
+      throw new Error(`${tag} -> connection failed after ${attempt} attempt(s): ${detail}${hint}`)
     }
   }
   throw lastErr

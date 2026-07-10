@@ -44,6 +44,21 @@ npm run smoke -- REACT-1540   # also resolves a real ticket key -> numeric id
 npm run dev     # Vite UI on :5173 (proxies /api to the Fastify backend on :3000)
 ```
 
+## Dry run (preview before sending)
+
+Click **"Dry run — preview payload"** (or `POST /api/day/<date>/push?dryRun=true`) to
+resolve ticket ids and build the exact requests that *would* be sent to Tempo —
+method, URL, headers, and body — shown in the UI and printed to the server
+console. Nothing is sent, and the auth token is redacted in the output.
+
+## Corporate networks (TLS interception)
+
+If your network runs a TLS-inspecting proxy (Zscaler/Netskope-type), Node will
+reject `api.tempo.io` with `SELF_SIGNED_CERT_IN_CHAIN` because it ships its own CA
+bundle and ignores the system keychain. The npm scripts set `NODE_USE_SYSTEM_CA=1`
+so Node trusts the same corporate root CA your OS/curl already trust. If your CA
+isn't in the system store, point Node at it: `NODE_EXTRA_CA_CERTS=/path/to/ca.pem`.
+
 ## Layout
 
 ```

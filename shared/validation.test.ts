@@ -63,6 +63,13 @@ describe('validateEntry', () => {
     expect(issues.some((i) => i.code === 'INVALID_TICKET' && i.level === 'error')).toBe(true)
   })
 
+  it('flags a blank ticket with a "required" message', () => {
+    const issues = validateEntry(entry({ ticketKey: '  ' }))
+    const issue = issues.find((i) => i.code === 'INVALID_TICKET')
+    expect(issue?.level).toBe('error')
+    expect(issue?.message).toMatch(/required/i)
+  })
+
   it('errors when end is before or equal to start', () => {
     expect(validateEntry(entry({ start: '10:00', end: '09:00' })).map((i) => i.code)).toContain('BAD_RANGE')
     expect(validateEntry(entry({ start: '10:00', end: '10:00' })).map((i) => i.code)).toContain('BAD_RANGE')

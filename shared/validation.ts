@@ -76,7 +76,10 @@ export function validateEntry(entry: Entry, config: ValidationConfig = defaultCo
   const add = (level: IssueLevel, code: string, message: string) =>
     issues.push({ level, code, message, entryId: entry.id })
 
-  if (!config.ticketPattern.test(entry.ticketKey.trim())) {
+  const key = entry.ticketKey.trim()
+  if (!key) {
+    add('error', 'INVALID_TICKET', 'Ticket is required (e.g. ABC-123).')
+  } else if (!config.ticketPattern.test(key)) {
     add('error', 'INVALID_TICKET', `"${entry.ticketKey}" is not a valid ticket key (expected e.g. ABC-123).`)
   }
 

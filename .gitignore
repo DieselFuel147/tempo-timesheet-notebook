@@ -6,3 +6,7 @@ dist/
 __pycache__/
 data/
 .DS_Store
+
+# local dev-tracking notes (not committed)
+plan.md
+todo.md

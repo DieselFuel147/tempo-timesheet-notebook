@@ -11,7 +11,9 @@ export const config = {
     baseUrl: (process.env.TEMPO_BASE_URL ?? 'https://api.tempo.io/4').replace(/\/+$/, ''),
     apiToken: process.env.TEMPO_API_TOKEN ?? '',
   },
-  port: Number(process.env.PORT ?? 3000),
+  // Own env var (not generic PORT) so dev tooling that injects PORT for the
+  // Vite UI can't accidentally steal the API's port.
+  port: Number(process.env.API_PORT ?? 3000),
 }
 
 /** Throws a helpful error if any credential is missing. */

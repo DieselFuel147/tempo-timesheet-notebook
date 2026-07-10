@@ -1,5 +1,5 @@
 import type { AuthProvider } from '../auth/types'
-import type { WorklogInput } from '../../shared/types'
+import type { WorklogInput, PlannedRequest } from '../../shared/types'
 import { requestJson } from '../http'
 
 /** Thin Tempo REST client (API v4). */
@@ -27,5 +27,19 @@ export class TempoClient {
   /** Create a single worklog. Returns Tempo's assigned worklog id. */
   async createWorklog(input: WorklogInput): Promise<{ tempoWorklogId: number }> {
     return this.request('POST', '/worklogs', input)
+  }
+
+  /** Build (but do NOT send) the create-worklog request — used by dry-run. */
+  async previewCreateWorklog(input: WorklogInput): Promise<PlannedRequest> {
+    return {
+      method: 'POST',
+      url: `${this.baseUrl}/worklogs`,
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        ...(await this.auth.authHeaders()),
+      },
+      body: input,
+    }
   }
 }

@@ -5,12 +5,12 @@
   "type": "module",
   "description": "Structured day-at-a-glance time logging that pushes cleanly to Tempo via the API.",
   "scripts": {
-    "dev": "concurrently -n web,api -c blue,green \"vite\" \"tsx watch server/index.ts\"",
+    "dev": "NODE_USE_SYSTEM_CA=1 concurrently -n web,api -c blue,green \"vite\" \"tsx watch server/index.ts\"",
     "dev:web": "vite",
-    "dev:api": "tsx watch server/index.ts",
+    "dev:api": "NODE_USE_SYSTEM_CA=1 tsx watch server/index.ts",
     "build": "vite build",
-    "start": "tsx server/index.ts",
-    "smoke": "tsx server/smoke.ts",
+    "start": "NODE_USE_SYSTEM_CA=1 tsx server/index.ts",
+    "smoke": "NODE_USE_SYSTEM_CA=1 tsx server/smoke.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"

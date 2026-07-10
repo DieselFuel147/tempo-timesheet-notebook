@@ -36,4 +36,21 @@ export class JiraClient {
     )
     return { id: String(d.id), key: d.key, summary: d.fields?.summary ?? '' }
   }
+
+  /** Autocomplete suggestions for the ticket field. Empty query returns recent issues. */
+  async pickIssues(query: string): Promise<{ key: string; summary: string }[]> {
+    const d = await this.get<{ sections?: { issues?: { key: string; summaryText?: string }[] }[] }>(
+      `/rest/api/3/issue/picker?query=${encodeURIComponent(query)}&showSubTasks=true`,
+    )
+    const seen = new Set<string>()
+    const out: { key: string; summary: string }[] = []
+    for (const section of d.sections ?? []) {
+      for (const issue of section.issues ?? []) {
+        if (seen.has(issue.key)) continue
+        seen.add(issue.key)
+        out.push({ key: issue.key, summary: issue.summaryText ?? '' })
+      }
+    }
+    return out
+  }
 }

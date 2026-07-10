@@ -45,3 +45,44 @@ export interface WorklogInput {
   description: string
   authorAccountId: string
 }
+
+/** Outcome of pushing a single entry to Tempo. */
+export interface EntryPushResult {
+  entryId: string
+  ticketKey: string
+  ok: boolean
+  tempoWorklogId?: number
+  error?: string
+}
+
+/** Outcome of pushing a whole day to Tempo. */
+export interface PushSummary {
+  results: EntryPushResult[]
+  synced: number
+  failed: number
+  skipped: number // already-synced entries left untouched (idempotency)
+  blocked: string[] // validation errors that stopped the whole push
+}
+
+/** The exact HTTP request that would be sent (auth token redacted). */
+export interface PlannedRequest {
+  method: string
+  url: string
+  headers: Record<string, string>
+  body: unknown
+}
+
+export interface PlannedWorklog {
+  entryId: string
+  ticketKey: string
+  issueId: number
+  request: PlannedRequest
+}
+
+/** Result of a dry-run push: what would be sent, with nothing actually sent. */
+export interface DryRunSummary {
+  dryRun: true
+  planned: PlannedWorklog[]
+  skipped: number
+  blocked: string[]
+}
