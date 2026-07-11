@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import SettingsIcon from '@mui/icons-material/Settings'
+import { WarningRounded } from '@mui/icons-material';
 import type { Day, Entry, JiraProfile, PushSummary, DryRunSummary } from '../shared/types'
 import {
   validateDay,
@@ -12,6 +13,11 @@ import { api } from './api'
 import { addDays, todayISO, prettyDate, minutesToHHmm, formatHours } from './dateutil'
 import { EntryRow } from './EntryRow'
 import { Settings } from './Settings'
+import { DatePicker } from '@mui/x-date-pickers/DatePicker';
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
+import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
+import dayjs from 'dayjs';
+
 
 export function App() {
   const [profile, setProfile] = useState<JiraProfile | null>(null)
@@ -209,165 +215,170 @@ export function App() {
   }
 
   return (
-    <div className="page">
-      <header className="topbar">
-        <div className="brand">
-          <h1>Timesheet</h1>
-          <span className="whoami">
-            {profile ? `${profile.displayName} · ${profile.timeZone}` : 'not connected to Jira'}
-          </span>
-        </div>
-        <div className="datenav">
-          <button type="button" onClick={() => setDate(addDays(date, -1))} title="Previous day">
-            ◀
-          </button>
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-          <button type="button" onClick={() => setDate(addDays(date, 1))} title="Next day">
-            ▶
-          </button>
-          <button type="button" className="today-btn" onClick={() => setDate(todayISO())}>
-            Today
-          </button>
-          <button
-            type="button"
-            className="icon-btn"
-            onClick={() => setShowSettings(true)}
-            title="Settings"
-            aria-label="Settings"
-          >
-            <SettingsIcon fontSize="small" />
-          </button>
-        </div>
-      </header>
-
-      {error && <div className="banner error-banner">{error}</div>}
-
-      <main className="layout">
-        <section className="entries-pane">
-          <div className="day-heading">
-            <h2>{prettyDate(date)}</h2>
-            <span className={dayIssues.length ? 'total warn' : 'total'}>{formatHours(totalMinutes)}</span>
+    <LocalizationProvider dateAdapter={AdapterDayjs}>
+      <div className="page">
+        <header className="topbar">
+          <div className="brand">
+            <h1>Timesheet</h1>
+            <span className="whoami">
+              {profile ? `${profile.displayName} · ${profile.timeZone}` : 'not connected to Jira'}
+            </span>
           </div>
+          <div className="datenav">
+            <button type="button" onClick={() => setDate(addDays(date, -1))} title="Previous day">
+              ◀
+            </button>
+            <DatePicker
+              value={dayjs(date)}
+              onChange={(newValue) => setDate(newValue?.format('YYYY-MM-DD') || date)}
+            />
+            <button type="button" onClick={() => setDate(addDays(date, 1))} title="Next day">
+              ▶
+            </button>
+            <button type="button" className="today-btn" onClick={() => setDate(todayISO())}>
+              Today
+            </button>
+            <button
+              type="button"
+              className="icon-btn"
+              onClick={() => setShowSettings(true)}
+              title="Settings"
+              aria-label="Settings"
+            >
+              <SettingsIcon fontSize="small" />
+            </button>
+          </div>
+        </header>
 
-          {loading ? (
-            <p className="muted">Loading…</p>
-          ) : (
-            <>
-              {entries.map((entry, i) => (
-                <div key={entry.id}>
-                  {gapBefore(i) !== null && (
-                    <div className="gap">gap · {formatHours(gapBefore(i) as number)}</div>
+        {error && <div className="banner error-banner">{error}</div>}
+
+        <main className="layout">
+          <section className="entries-pane">
+            <div className="day-heading">
+              <h2>{prettyDate(date)}</h2>
+              <span className={dayIssues.length ? 'total warn' : 'total'}>{formatHours(totalMinutes)}</span>
+            </div>
+
+            {loading ? (
+              <p className="muted">Loading…</p>
+            ) : (
+              <>
+                {entries.map((entry, i) => (
+                  <div key={entry.id}>
+                    {gapBefore(i) !== null && (
+                      <div className="gap">gap · {formatHours(gapBefore(i) as number)}</div>
+                    )}
+                    <EntryRow
+                      entry={entry}
+                      issues={issuesByEntry.get(entry.id) ?? []}
+                      adminTicket={config.adminTicket}
+                      onPatch={(patch) => patchEntry(entry.id, patch)}
+                      onDelete={() => deleteEntry(entry.id)}
+                    />
+                  </div>
+                ))}
+
+                {entries.length === 0 && <p className="muted">No entries yet.</p>}
+
+                <button type="button" className="add-btn" onClick={addEntry}>
+                  + Add entry
+                </button>
+
+                {dayIssues.length > 0 && (
+                  <ul className="day-issues">
+                    {dayIssues.map((i, idx) => (
+                      <li key={idx} className={i.level}>
+                        <WarningRounded color="warning" fontSize="small"/> {i.message}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
+            )}
+          </section>
+
+          <aside className="notes-pane">
+            <label className="notes-label">Notes · not sent to Tempo</label>
+            <textarea
+              className="notes"
+              value={day?.notes ?? ''}
+              placeholder="Freeform notes, questions, links…"
+              onChange={(e) => onNotesChange(e.target.value)}
+            />
+            <button
+              type="button"
+              className="dryrun-btn"
+              disabled={pushing || unsyncedCount === 0}
+              onClick={handleDryRun}
+              title="Preview the exact requests without sending anything (also printed to the server console)"
+            >
+              Dry run — preview payload
+            </button>
+            <button
+              type="button"
+              className="push-btn"
+              disabled={pushDisabled}
+              onClick={handlePush}
+              title="Push this day's unsynced entries to Tempo"
+            >
+              {pushLabel}
+            </button>
+
+            {plan &&
+              (plan.blocked.length > 0 ? (
+                <div className="banner error-banner">Blocked — fix first: {plan.blocked.join('; ')}</div>
+              ) : (
+                <div className="plan">
+                  <div className="plan-head">
+                    Dry run — {plan.planned.length} request{plan.planned.length === 1 ? '' : 's'} would
+                    be sent
+                    {plan.skipped ? `, ${plan.skipped} already synced` : ''}. Nothing was sent; auth
+                    token redacted.
+                  </div>
+                  {plan.planned.map((p) => (
+                    <pre key={p.entryId} className="plan-req">
+                      {`${p.request.method} ${p.request.url}\nheaders: ${JSON.stringify(
+                        p.request.headers,
+                        null,
+                        2,
+                      )}\nbody: ${JSON.stringify(p.request.body, null, 2)}`}
+                    </pre>
+                  ))}
+                  {plan.planned.length === 0 && (
+                    <div className="muted">Nothing to push (all synced, or no entries).</div>
                   )}
-                  <EntryRow
-                    entry={entry}
-                    issues={issuesByEntry.get(entry.id) ?? []}
-                    adminTicket={config.adminTicket}
-                    onPatch={(patch) => patchEntry(entry.id, patch)}
-                    onDelete={() => deleteEntry(entry.id)}
-                  />
                 </div>
               ))}
 
-              {entries.length === 0 && <p className="muted">No entries yet.</p>}
-
-              <button type="button" className="add-btn" onClick={addEntry}>
-                + Add entry
-              </button>
-
-              {dayIssues.length > 0 && (
-                <ul className="day-issues">
-                  {dayIssues.map((i, idx) => (
-                    <li key={idx} className={i.level}>
-                      ⚠️ {i.message}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </>
-          )}
-        </section>
-
-        <aside className="notes-pane">
-          <label className="notes-label">Notes · not sent to Tempo</label>
-          <textarea
-            className="notes"
-            value={day?.notes ?? ''}
-            placeholder="Freeform notes, questions, links…"
-            onChange={(e) => onNotesChange(e.target.value)}
-          />
-          <button
-            type="button"
-            className="dryrun-btn"
-            disabled={pushing || unsyncedCount === 0}
-            onClick={handleDryRun}
-            title="Preview the exact requests without sending anything (also printed to the server console)"
-          >
-            Dry run — preview payload
-          </button>
-          <button
-            type="button"
-            className="push-btn"
-            disabled={pushDisabled}
-            onClick={handlePush}
-            title="Push this day's unsynced entries to Tempo"
-          >
-            {pushLabel}
-          </button>
-
-          {plan &&
-            (plan.blocked.length > 0 ? (
-              <div className="banner error-banner">Blocked — fix first: {plan.blocked.join('; ')}</div>
-            ) : (
-              <div className="plan">
-                <div className="plan-head">
-                  Dry run — {plan.planned.length} request{plan.planned.length === 1 ? '' : 's'} would
-                  be sent
-                  {plan.skipped ? `, ${plan.skipped} already synced` : ''}. Nothing was sent; auth
-                  token redacted.
-                </div>
-                {plan.planned.map((p) => (
-                  <pre key={p.entryId} className="plan-req">
-                    {`${p.request.method} ${p.request.url}\nheaders: ${JSON.stringify(
-                      p.request.headers,
-                      null,
-                      2,
-                    )}\nbody: ${JSON.stringify(p.request.body, null, 2)}`}
-                  </pre>
-                ))}
-                {plan.planned.length === 0 && (
-                  <div className="muted">Nothing to push (all synced, or no entries).</div>
-                )}
-              </div>
-            ))}
-
-          {pushResult && (
-            <div
-              className={
-                pushResult.failed || pushResult.blocked.length
-                  ? 'banner error-banner'
-                  : 'banner ok-banner'
-              }
-            >
-              {pushResult.blocked.length > 0 ? (
-                <div>Blocked — fix first: {pushResult.blocked.join('; ')}</div>
-              ) : (
-                <div>
-                  Synced {pushResult.synced}
-                  {pushResult.skipped ? `, skipped ${pushResult.skipped} already logged` : ''}
-                  {pushResult.failed ? `, ${pushResult.failed} failed` : ''}.
-                </div>
-              )}
-              {pushResult.results
-                .filter((r) => !r.ok)
-                .map((r) => (
-                  <div key={r.entryId} className="push-fail">
-                    {r.ticketKey}: {r.error}
+            {pushResult && (
+              <div
+                className={
+                  pushResult.failed || pushResult.blocked.length
+                    ? 'banner error-banner'
+                    : 'banner ok-banner'
+                }
+              >
+                {pushResult.blocked.length > 0 ? (
+                  <div>Blocked — fix first: {pushResult.blocked.join('; ')}</div>
+                ) : (
+                  <div>
+                    Synced {pushResult.synced}
+                    {pushResult.skipped ? `, skipped ${pushResult.skipped} already logged` : ''}
+                    {pushResult.failed ? `, ${pushResult.failed} failed` : ''}.
                   </div>
-                ))}
-            </div>
-          )}
-        </aside>
-      </main>
-    </div>
+                )}
+                {pushResult.results
+                  .filter((r) => !r.ok)
+                  .map((r) => (
+                    <div key={r.entryId} className="push-fail">
+                      {r.ticketKey}: {r.error}
+                    </div>
+                  ))}
+              </div>
+            )}
+          </aside>
+        </main>
+      </div>
+    </LocalizationProvider>
   )
 }
