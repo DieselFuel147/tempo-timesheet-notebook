@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
 import SettingsIcon from '@mui/icons-material/Settings'
-import { WarningRounded } from '@mui/icons-material';
 import type { Day, Entry, JiraProfile, PushSummary, DryRunSummary } from '../shared/types'
 import {
   validateDay,
@@ -17,6 +16,11 @@ import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 import dayjs from 'dayjs';
+import { ThemeProvider, CssBaseline, Stack, IconButton, Alert, Button, TextField, Paper, Typography, Box, Container } from '@mui/material';
+import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
+import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import TodayIcon from '@mui/icons-material/Today';
+import { theme } from './theme'
 
 
 export function App() {
@@ -208,177 +212,274 @@ export function App() {
 
   if (showSettings) {
     return (
-      <div className="page">
-        <Settings settings={settings} onSaved={setSettings} onClose={() => setShowSettings(false)} />
-      </div>
+      <ThemeProvider theme={theme}>
+        <CssBaseline />
+        <Container maxWidth="md" sx={{ py: 3, pb: 8 }}>
+          <Settings settings={settings} onSaved={setSettings} onClose={() => setShowSettings(false)} />
+        </Container>
+      </ThemeProvider>
     )
   }
 
   return (
-    <LocalizationProvider dateAdapter={AdapterDayjs}>
-      <div className="page">
-        <header className="topbar">
-          <div className="brand">
-            <h1>Timesheet</h1>
-            <span className="whoami">
-              {profile ? `${profile.displayName} · ${profile.timeZone}` : 'not connected to Jira'}
-            </span>
-          </div>
-          <div className="datenav">
-            <button type="button" onClick={() => setDate(addDays(date, -1))} title="Previous day">
-              ◀
-            </button>
-            <DatePicker
-              value={dayjs(date)}
-              onChange={(newValue) => setDate(newValue?.format('YYYY-MM-DD') || date)}
-            />
-            <button type="button" onClick={() => setDate(addDays(date, 1))} title="Next day">
-              ▶
-            </button>
-            <button type="button" className="today-btn" onClick={() => setDate(todayISO())}>
-              Today
-            </button>
-            <button
-              type="button"
-              className="icon-btn"
-              onClick={() => setShowSettings(true)}
-              title="Settings"
-              aria-label="Settings"
-            >
-              <SettingsIcon fontSize="small" />
-            </button>
-          </div>
-        </header>
-
-        {error && <div className="banner error-banner">{error}</div>}
-
-        <main className="layout">
-          <section className="entries-pane">
-            <div className="day-heading">
-              <h2>{prettyDate(date)}</h2>
-              <span className={dayIssues.length ? 'total warn' : 'total'}>{formatHours(totalMinutes)}</span>
-            </div>
-
-            {loading ? (
-              <p className="muted">Loading…</p>
-            ) : (
-              <>
-                {entries.map((entry, i) => (
-                  <div key={entry.id}>
-                    {gapBefore(i) !== null && (
-                      <div className="gap">gap · {formatHours(gapBefore(i) as number)}</div>
-                    )}
-                    <EntryRow
-                      entry={entry}
-                      issues={issuesByEntry.get(entry.id) ?? []}
-                      adminTicket={config.adminTicket}
-                      onPatch={(patch) => patchEntry(entry.id, patch)}
-                      onDelete={() => deleteEntry(entry.id)}
-                    />
-                  </div>
-                ))}
-
-                {entries.length === 0 && <p className="muted">No entries yet.</p>}
-
-                <button type="button" className="add-btn" onClick={addEntry}>
-                  + Add entry
-                </button>
-
-                {dayIssues.length > 0 && (
-                  <ul className="day-issues">
-                    {dayIssues.map((i, idx) => (
-                      <li key={idx} className={i.level}>
-                        <WarningRounded color="warning" fontSize="small"/> {i.message}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </>
-            )}
-          </section>
-
-          <aside className="notes-pane">
-            <label className="notes-label">Notes · not sent to Tempo</label>
-            <textarea
-              className="notes"
-              value={day?.notes ?? ''}
-              placeholder="Freeform notes, questions, links…"
-              onChange={(e) => onNotesChange(e.target.value)}
-            />
-            <button
-              type="button"
-              className="dryrun-btn"
-              disabled={pushing || unsyncedCount === 0}
-              onClick={handleDryRun}
-              title="Preview the exact requests without sending anything (also printed to the server console)"
-            >
-              Dry run — preview payload
-            </button>
-            <button
-              type="button"
-              className="push-btn"
-              disabled={pushDisabled}
-              onClick={handlePush}
-              title="Push this day's unsynced entries to Tempo"
-            >
-              {pushLabel}
-            </button>
-
-            {plan &&
-              (plan.blocked.length > 0 ? (
-                <div className="banner error-banner">Blocked — fix first: {plan.blocked.join('; ')}</div>
-              ) : (
-                <div className="plan">
-                  <div className="plan-head">
-                    Dry run — {plan.planned.length} request{plan.planned.length === 1 ? '' : 's'} would
-                    be sent
-                    {plan.skipped ? `, ${plan.skipped} already synced` : ''}. Nothing was sent; auth
-                    token redacted.
-                  </div>
-                  {plan.planned.map((p) => (
-                    <pre key={p.entryId} className="plan-req">
-                      {`${p.request.method} ${p.request.url}\nheaders: ${JSON.stringify(
-                        p.request.headers,
-                        null,
-                        2,
-                      )}\nbody: ${JSON.stringify(p.request.body, null, 2)}`}
-                    </pre>
-                  ))}
-                  {plan.planned.length === 0 && (
-                    <div className="muted">Nothing to push (all synced, or no entries).</div>
-                  )}
-                </div>
-              ))}
-
-            {pushResult && (
-              <div
-                className={
-                  pushResult.failed || pushResult.blocked.length
-                    ? 'banner error-banner'
-                    : 'banner ok-banner'
-                }
+    <ThemeProvider theme={theme}>
+      <CssBaseline />
+      <LocalizationProvider dateAdapter={AdapterDayjs}>
+        <Container maxWidth="lg" sx={{ py: 3, pb: 8 }}>
+          <Box
+            component="header"
+            sx={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: 2,
+              flexWrap: 'wrap',
+              mb: 2,
+            }}
+          >
+            <Box>
+              <Typography variant="h5" component="h1">
+                Timesheet
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {profile ? `${profile.displayName} · ${profile.timeZone}` : 'not connected to Jira'}
+              </Typography>
+            </Box>
+            <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+              <IconButton
+                size="small"
+                onClick={() => setDate(addDays(date, -1))}
+                title="Previous day"
+                aria-label="Previous day"
               >
-                {pushResult.blocked.length > 0 ? (
-                  <div>Blocked — fix first: {pushResult.blocked.join('; ')}</div>
-                ) : (
-                  <div>
-                    Synced {pushResult.synced}
-                    {pushResult.skipped ? `, skipped ${pushResult.skipped} already logged` : ''}
-                    {pushResult.failed ? `, ${pushResult.failed} failed` : ''}.
-                  </div>
-                )}
-                {pushResult.results
-                  .filter((r) => !r.ok)
-                  .map((r) => (
-                    <div key={r.entryId} className="push-fail">
-                      {r.ticketKey}: {r.error}
+                <ChevronLeftIcon />
+              </IconButton>
+              <DatePicker
+                value={dayjs(date)}
+                onChange={(newValue) => setDate(newValue?.format('YYYY-MM-DD') || date)}
+              />
+              <IconButton
+                size="small"
+                onClick={() => setDate(addDays(date, 1))}
+                title="Next day"
+                aria-label="Next day"
+              >
+                <ChevronRightIcon />
+              </IconButton>
+              <IconButton
+                size="small"
+                onClick={() => setDate(todayISO())}
+                title="Today"
+                aria-label="Today"
+              >
+                <TodayIcon fontSize="small" />
+              </IconButton>
+              <IconButton
+                size="small"
+                onClick={() => setShowSettings(true)}
+                title="Settings"
+                aria-label="Settings"
+              >
+                <SettingsIcon fontSize="small" />
+              </IconButton>
+            </Stack>
+          </Box>
+
+          {error && <Alert severity="error" sx={{ mb: 1.5 }}>{error}</Alert>}
+
+          <Box
+            component="main"
+            sx={{
+              display: 'flex',
+              gap: 2.5,
+              alignItems: 'flex-start',
+              flexDirection: { xs: 'column', md: 'row' },
+            }}
+          >
+            <Box component="section" sx={{ flex: { xs: '1 1 auto', md: '2.35 1 0' }, minWidth: 0, width: '100%' }}>
+              <Stack direction="row" sx={{ alignItems: 'baseline', justifyContent: 'space-between', mb: 1.25 }}>
+                <Typography variant="h6" component="h2">
+                  {prettyDate(date)}
+                </Typography>
+                <Typography
+                  variant="subtitle2"
+                  sx={{
+                    fontVariantNumeric: 'tabular-nums',
+                    fontWeight: 600,
+                    color: dayIssues.length ? 'warning.main' : 'text.secondary',
+                  }}
+                >
+                  {formatHours(totalMinutes)}
+                </Typography>
+              </Stack>
+
+              {loading ? (
+                <Typography variant="body2" color="text.secondary">Loading…</Typography>
+              ) : (
+                <>
+                  {entries.map((entry, i) => (
+                    <div key={entry.id}>
+                      {gapBefore(i) !== null && (
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          align="center"
+                          sx={{ display: 'block', py: 0.25 }}
+                        >
+                          gap · {formatHours(gapBefore(i) as number)}
+                        </Typography>
+                      )}
+                      <EntryRow
+                        entry={entry}
+                        issues={issuesByEntry.get(entry.id) ?? []}
+                        adminTicket={config.adminTicket}
+                        onPatch={(patch) => patchEntry(entry.id, patch)}
+                        onDelete={() => deleteEntry(entry.id)}
+                      />
                     </div>
                   ))}
-              </div>
-            )}
-          </aside>
-        </main>
-      </div>
-    </LocalizationProvider>
+
+                  {entries.length === 0 && <Typography variant="body2" color="text.secondary">No entries yet.</Typography>}
+
+                  <Button variant="outlined" onClick={addEntry} sx={{ mt: 0.5, width: '100%' }}>
+                    + Add entry
+                  </Button>
+
+                  {dayIssues.length > 0 && (
+                    <Stack spacing={1} sx={{ mt: 1.5 }}>
+                      {dayIssues.map((i, idx) => (
+                        <Alert key={idx} severity={i.level === 'error' ? 'error' : 'warning'}>
+                          {i.message}
+                        </Alert>
+                      ))}
+                    </Stack>
+                  )}
+                </>
+              )}
+            </Box>
+
+            <Box
+              component="aside"
+              sx={{
+                flex: '1 1 0',
+                minWidth: { xs: '100%', md: 220 },
+                maxWidth: { xs: '100%', md: 320 },
+                width: '100%',
+                position: { xs: 'static', md: 'sticky' },
+                top: 16,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 1.25,
+              }}
+            >
+              <Typography variant="caption" color="text.secondary">
+                Notes · not sent to Tempo
+              </Typography>
+              <TextField
+                multiline
+                minRows={14}
+                value={day?.notes ?? ''}
+                placeholder="Freeform notes, questions, links…"
+                onChange={(e) => onNotesChange(e.target.value)}
+                sx={{ width: '100%' }}
+              />
+              <Stack spacing={1} sx={{ mt: 0.5 }}>
+                <Button
+                  variant="outlined"
+                  fullWidth
+                  disabled={pushing || unsyncedCount === 0}
+                  onClick={handleDryRun}
+                  title="Preview the exact requests without sending anything (also printed to the server console)"
+                >
+                  Dry run — preview payload
+                </Button>
+                <Button
+                  variant="contained"
+                  fullWidth
+                  disabled={pushDisabled}
+                  onClick={handlePush}
+                  title="Push this day's unsynced entries to Tempo"
+                >
+                  {pushLabel}
+                </Button>
+              </Stack>
+
+              {plan &&
+                (plan.blocked.length > 0 ? (
+                  <Alert severity="error" sx={{ mt: 1.5 }}>Blocked — fix first: {plan.blocked.join('; ')}</Alert>
+                ) : (
+                  <Paper variant="outlined" sx={{ mt: 1.5, p: 1.5 }}>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                      Dry run — {plan.planned.length} request{plan.planned.length === 1 ? '' : 's'} would
+                      be sent
+                      {plan.skipped ? `, ${plan.skipped} already synced` : ''}. Nothing was sent; auth
+                      token redacted.
+                    </Typography>
+                    {plan.planned.map((p) => (
+                      <Box
+                        key={p.entryId}
+                        component="pre"
+                        sx={{
+                          m: 0,
+                          mb: 1,
+                          p: 1,
+                          borderRadius: 1,
+                          border: 1,
+                          borderColor: 'divider',
+                          backgroundColor: 'background.default',
+                          fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace',
+                          fontSize: '0.75rem',
+                          lineHeight: 1.45,
+                          overflowX: 'auto',
+                          whiteSpace: 'pre',
+                        }}
+                      >
+                        {`${p.request.method} ${p.request.url}\nheaders: ${JSON.stringify(
+                          p.request.headers,
+                          null,
+                          2,
+                        )}\nbody: ${JSON.stringify(p.request.body, null, 2)}`}
+                      </Box>
+                    ))}
+                    {plan.planned.length === 0 && (
+                      <Typography variant="body2" color="text.secondary">
+                        Nothing to push (all synced, or no entries).
+                      </Typography>
+                    )}
+                  </Paper>
+                ))}
+
+              {pushResult && (
+                <Alert
+                  severity={pushResult.failed || pushResult.blocked.length ? 'error' : 'success'}
+                  sx={{ mt: 1.5 }}
+                >
+                  {pushResult.blocked.length > 0 ? (
+                    <div>Blocked — fix first: {pushResult.blocked.join('; ')}</div>
+                  ) : (
+                    <div>
+                      Synced {pushResult.synced}
+                      {pushResult.skipped ? `, skipped ${pushResult.skipped} already logged` : ''}
+                      {pushResult.failed ? `, ${pushResult.failed} failed` : ''}.
+                    </div>
+                  )}
+                  {pushResult.results.some((r) => !r.ok) && (
+                    <Stack spacing={0.5} sx={{ mt: 1 }}>
+                      {pushResult.results
+                        .filter((r) => !r.ok)
+                        .map((r) => (
+                          <Typography key={r.entryId} variant="body2" color="error">
+                            {r.ticketKey}: {r.error}
+                          </Typography>
+                        ))}
+                    </Stack>
+                  )}
+                </Alert>
+              )}
+            </Box>
+          </Box>
+        </Container>
+      </LocalizationProvider>
+    </ThemeProvider>
   )
 }

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
+import { Alert, Box, Button, Paper, Stack, TextField, Typography, IconButton } from '@mui/material'
 import type { Settings as AppSettings, ThresholdSettings } from '../shared/settings'
 import { defaultSettings } from '../shared/settings'
 import { parseTime } from '../shared/validation'
@@ -56,96 +57,114 @@ export function Settings({ settings, onSaved, onClose }: Props) {
   }
 
   return (
-    <div className="settings-page">
-      <div className="settings-head">
-        <button type="button" className="icon-btn" onClick={onClose} title="Back to timesheet">
+    <Box sx={{ maxWidth: 640 }}>
+      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mb: 2 }}>
+        <IconButton type="button" onClick={onClose} title="Back to timesheet" aria-label="Back to timesheet">
           <ArrowBackIcon fontSize="small" />
-        </button>
-        <h2>Settings</h2>
-      </div>
+        </IconButton>
+        <Typography variant="h5" component="h2">Settings</Typography>
+      </Stack>
 
-      {error && <div className="banner error-banner">{error}</div>}
+      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
-      <fieldset className="settings-group">
-        <legend>Validation thresholds</legend>
-        <p className="settings-hint">
-          These drive the live warnings on the day view. Errors (bad ticket, end
-          before start, overlaps) always block a push regardless of these.
-        </p>
+      <Paper variant="outlined" sx={{ p: 2 }}>
+        <Typography variant="h6" component="h3" sx={{ mb: 1 }}>
+          Validation thresholds
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          These drive the live warnings on the day view. Errors (bad ticket, end before start,
+          overlaps) always block a push regardless of these.
+        </Typography>
 
-        <div className="settings-field">
-          <label htmlFor="adminTicket">General admin ticket</label>
-          <input
-            id="adminTicket"
+        <Stack spacing={1.5}>
+          <TextField
+            label="General admin ticket"
             value={draft.adminTicket}
             onChange={(e) => set('adminTicket', e.target.value.trim())}
             placeholder="ABC-123"
+            helperText='Stamped by the “General admin” button on a row.'
           />
-          <span className="field-note">Stamped by the “General admin” button on a row.</span>
-        </div>
 
-        <div className="settings-row">
-          <div className="settings-field">
-            <label htmlFor="workdayStart">Normal hours — start</label>
-            <input
-              id="workdayStart"
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+            <TextField
+              label="Normal hours — start"
               type="time"
               value={minutesToHHmm(draft.workdayStartMin)}
               onChange={time('workdayStartMin')}
+              fullWidth
             />
-          </div>
-          <div className="settings-field">
-            <label htmlFor="workdayEnd">Normal hours — end</label>
-            <input
-              id="workdayEnd"
+            <TextField
+              label="Normal hours — end"
               type="time"
               value={minutesToHHmm(draft.workdayEndMin)}
               onChange={time('workdayEndMin')}
+              fullWidth
             />
-          </div>
-        </div>
-        <span className="field-note">Entries outside this window warn (Early / Late).</span>
+          </Stack>
+          <Typography variant="body2" color="text.secondary">
+            Entries outside this window warn (Early / Late).
+          </Typography>
 
-        <div className="settings-row">
-          <div className="settings-field">
-            <label htmlFor="minEntry">Min entry (minutes)</label>
-            <input id="minEntry" type="number" min={0} value={draft.minEntryMinutes} onChange={num('minEntryMinutes')} />
-          </div>
-          <div className="settings-field">
-            <label htmlFor="maxEntry">Max entry (hours)</label>
-            <input id="maxEntry" type="number" min={0} step={0.25} value={draft.maxEntryHours} onChange={num('maxEntryHours')} />
-          </div>
-        </div>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+            <TextField
+              label="Min entry (minutes)"
+              type="number"
+              slotProps={{ htmlInput: { min: 0 } }}
+              value={draft.minEntryMinutes}
+              onChange={num('minEntryMinutes')}
+              fullWidth
+            />
+            <TextField
+              label="Max entry (hours)"
+              type="number"
+              slotProps={{ htmlInput: { min: 0, step: 0.25 } }}
+              value={draft.maxEntryHours}
+              onChange={num('maxEntryHours')}
+              fullWidth
+            />
+          </Stack>
 
-        <div className="settings-row">
-          <div className="settings-field">
-            <label htmlFor="minDay">Min day total (hours)</label>
-            <input id="minDay" type="number" min={0} step={0.25} value={draft.minDayHours} onChange={num('minDayHours')} />
-          </div>
-          <div className="settings-field">
-            <label htmlFor="maxDay">Max day total (hours)</label>
-            <input id="maxDay" type="number" min={0} step={0.25} value={draft.maxDayHours} onChange={num('maxDayHours')} />
-          </div>
-        </div>
-      </fieldset>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+            <TextField
+              label="Min day total (hours)"
+              type="number"
+              slotProps={{ htmlInput: { min: 0, step: 0.25 } }}
+              value={draft.minDayHours}
+              onChange={num('minDayHours')}
+              fullWidth
+            />
+            <TextField
+              label="Max day total (hours)"
+              type="number"
+              slotProps={{ htmlInput: { min: 0, step: 0.25 } }}
+              value={draft.maxDayHours}
+              onChange={num('maxDayHours')}
+              fullWidth
+            />
+          </Stack>
+        </Stack>
+      </Paper>
 
-      <div className="settings-actions">
-        <button
+      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mt: 2 }}>
+        <Button
           type="button"
-          className="reset-btn"
+          variant="outlined"
+          startIcon={<RestartAltIcon fontSize="small" />}
           onClick={() => {
             setDraft({ ...defaultSettings.validation })
             setSaved(false)
           }}
           title="Restore built-in defaults (not saved until you press Save)"
         >
-          <RestartAltIcon fontSize="small" /> Reset to defaults
-        </button>
-        <span className="settings-status">{saved && !dirty ? 'Saved ✓' : ''}</span>
-        <button type="button" className="push-btn" disabled={saving || !dirty} onClick={save}>
+          Reset to defaults
+        </Button>
+        <Typography variant="body2" color="success.main" sx={{ flex: 1 }}>
+          {saved && !dirty ? 'Saved ✓' : ''}
+        </Typography>
+        <Button type="button" variant="contained" disabled={saving || !dirty} onClick={save}>
           {saving ? 'Saving…' : 'Save settings'}
-        </button>
-      </div>
-    </div>
+        </Button>
+      </Stack>
+    </Box>
   )
 }

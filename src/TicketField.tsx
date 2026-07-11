@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import PsychologyIcon from '@mui/icons-material/Psychology'
-import { api, type TicketSuggestion } from './api'
+import { api } from './api'
 import { defaultConfig } from '../shared/validation'
+import { Autocomplete, Box, TextField } from '@mui/material'
+import { theme } from './theme'
 
 interface Props {
   value: string
@@ -10,101 +12,87 @@ interface Props {
   onAdmin: () => void
 }
 
+interface TicketOption {
+  key: string
+  summary: string
+  label: string
+}
+
 // Ticket input with debounced Jira autocomplete. Turns red when the value is
 // non-empty but not a valid key. Autocomplete is best-effort: if Jira isn't
 // reachable, the field still works as a plain text input.
 export function TicketField({ value, invalid, onChange, onAdmin }: Props) {
-  const [open, setOpen] = useState(false)
-  const [suggestions, setSuggestions] = useState<TicketSuggestion[]>([])
-  const [active, setActive] = useState(0)
-  const boxRef = useRef<HTMLDivElement>(null)
-  const query = useRef(value)
-  query.current = value
+  const [loading, setLoading] = useState(false)
+  const [options, setOptions] = useState<TicketOption[]>([])
 
   useEffect(() => {
-    if (!open) return
+    setLoading(true)
     const handle = setTimeout(() => {
       api
-        .tickets(query.current.trim())
-        .then((list) => setSuggestions(list.slice(0, 8)))
-        .catch(() => setSuggestions([]))
+        .tickets(value.trim())
+        .then((list) =>
+          setOptions(list.slice(0, 8).map((s) => ({ ...s, label: `${s.key} — ${s.summary}` }))),
+        )
+        .catch(() => setOptions([]))
+        .finally(() => setLoading(false))
     }, 250)
     return () => clearTimeout(handle)
-  }, [value, open])
+  }, [value])
 
-  useEffect(() => {
-    function onClickAway(e: MouseEvent) {
-      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', onClickAway)
-    return () => document.removeEventListener('mousedown', onClickAway)
-  }, [])
-
-  function choose(s: TicketSuggestion) {
-    onChange(s.key)
-    setOpen(false)
-  }
-
-  function onKeyDown(e: React.KeyboardEvent) {
-    if (!open || suggestions.length === 0) return
-    if (e.key === 'ArrowDown') {
-      e.preventDefault()
-      setActive((a) => Math.min(a + 1, suggestions.length - 1))
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault()
-      setActive((a) => Math.max(a - 1, 0))
-    } else if (e.key === 'Enter') {
-      e.preventDefault()
-      choose(suggestions[active])
-    } else if (e.key === 'Escape') {
-      setOpen(false)
-    }
-  }
+  const adminTitle = `Log as general admin (${defaultConfig.adminTicket})`
 
   return (
-    <div className="ticket-field" ref={boxRef}>
-      <div className={invalid ? 'ticket-field-group invalid' : 'ticket-field-group'}>
-        <input
-          className="ticket-input"
-          value={value}
-          placeholder="ABC-123"
-          spellCheck={false}
-          autoCapitalize="characters"
-          onChange={(e) => {
-            onChange(e.target.value.toUpperCase())
-            setOpen(true)
-            setActive(0)
-          }}
-          onFocus={() => setOpen(true)}
-          onKeyDown={onKeyDown}
-        />
-        <button
-          type="button"
-          className="admin-icon-btn"
-          title={`Log as general admin (${defaultConfig.adminTicket})`}
-          onClick={onAdmin}
-        >
-          <PsychologyIcon sx={{ fontSize: 18 }} />
-        </button>
-      </div>
-      {open && suggestions.length > 0 && (
-        <ul className="ticket-suggestions">
-          {suggestions.map((s, i) => (
-            <li
-              key={s.key}
-              className={i === active ? 'active' : undefined}
-              onMouseEnter={() => setActive(i)}
-              onMouseDown={(e) => {
-                e.preventDefault()
-                choose(s)
-              }}
-            >
-              <span className="sugg-key">{s.key}</span>
-              <span className="sugg-summary">{s.summary}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+      <Autocomplete<TicketOption, false, false, true>
+        freeSolo
+        openOnFocus
+        inputValue={value}
+        options={options}
+        loading={loading}
+        filterOptions={(x) => x}
+        onChange={(_, newValue) => {
+          if (typeof newValue === 'string') {
+            onChange(newValue.toUpperCase())
+          } else if (newValue && newValue.key) {
+            onChange(newValue.key)
+          }
+        }}
+        onInputChange={(_, newValue) => onChange(newValue.toUpperCase())}
+        getOptionLabel={(opt) => (typeof opt === 'string' ? opt : opt.key)}
+        isOptionEqualToValue={(opt, val) => opt.key === (typeof val === 'string' ? val : val.key)}
+        renderInput={(params) => (
+          <TextField
+            {...params}
+            placeholder="ABC-123"
+            error={invalid}
+            size="small"
+            sx={{ width: 220 }}
+            slotProps={{
+              input: params.slotProps.input,
+              htmlInput: {
+                ...params.slotProps.htmlInput,
+                spellCheck: false,
+                autoCapitalize: 'characters',
+              },
+            }}
+          />
+        )}
+        renderOption={(props, opt) => (
+          <li {...props}>
+            <Box sx={{ fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace', fontSize: '0.82rem', whiteSpace: 'nowrap' }}>
+              {typeof opt === 'string' ? opt : opt.key}
+            </Box>
+            <Box sx={{ color: theme.palette.text.secondary, fontSize: '0.82rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {typeof opt === 'string' ? '' : opt.summary}
+            </Box>
+          </li>
+        )}
+      />
+      <PsychologyIcon
+        sx={{ color: theme.palette.text.secondary, cursor: 'pointer', fontSize: 18 }}
+        titleAccess={adminTitle}
+        onClick={onAdmin}
+      />
+    </Box>
   )
 }

@@ -3,6 +3,11 @@ import type { ValidationIssue } from '../shared/validation'
 import { entryDurationMinutes } from '../shared/validation'
 import { formatHours } from './dateutil'
 import { TicketField } from './TicketField'
+import { Paper, TextField, Chip, IconButton, List, ListItem, Typography, Box } from '@mui/material'
+import CancelOutlinedIcon from '@mui/icons-material/CancelOutlined'
+import ErrorIcon from '@mui/icons-material/Error'
+import WarningIcon from '@mui/icons-material/Warning'
+import { theme } from './theme'
 
 interface Props {
   entry: Entry
@@ -19,35 +24,55 @@ export function EntryRow({ entry, issues, adminTicket, onPatch, onDelete }: Prop
 
   const duration = entryDurationMinutes(entry)
   const synced = !!entry.tempoWorklogId
-  const rowClass = [
-    'entry',
-    errors.length ? 'error' : warnings.length ? 'warning' : '',
-    synced ? 'synced' : '',
-  ]
-    .filter(Boolean)
-    .join(' ')
 
   return (
-    <div className={rowClass}>
-      <div className="entry-main">
-        <div className="times">
-          <input
+    <Paper
+      variant="outlined"
+      sx={{
+        position: 'relative',
+        borderColor: errors.length ? theme.palette.error.main : warnings.length ? theme.palette.warning.main : undefined,
+        borderLeftWidth: 3,
+        mb: 1,
+      }}
+    >
+      <IconButton
+        size="small"
+        title="Delete entry"
+        aria-label="Delete entry"
+        onClick={onDelete}
+        sx={{ position: 'absolute', top: 6, right: 6 }}
+      >
+        <CancelOutlinedIcon fontSize="small" />
+      </IconButton>
+
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap', p: 0.8, pr: 5.5 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+          <TextField
             type="time"
             value={entry.start}
             onChange={(e) => onPatch({ start: e.target.value })}
-            aria-label="Start time"
+            size="small"
+            slotProps={{ htmlInput: { 'aria-label': 'Start time' } }}
           />
-          <span className="dash">–</span>
-          <input
+          <Typography sx={{ color: theme.palette.text.secondary }}>–</Typography>
+          <TextField
             type="time"
             value={entry.end}
             onChange={(e) => onPatch({ end: e.target.value })}
-            aria-label="End time"
+            size="small"
+            slotProps={{ htmlInput: { 'aria-label': 'End time' } }}
           />
-          <span className="duration">
+          <Typography
+            sx={{
+              color: theme.palette.text.secondary,
+              fontSize: '0.8rem',
+              minWidth: '44px',
+              fontVariantNumeric: 'tabular-nums',
+            }}
+          >
             {duration !== null && duration > 0 ? formatHours(duration) : '—'}
-          </span>
-        </div>
+          </Typography>
+        </Box>
 
         <TicketField
           value={entry.ticketKey}
@@ -56,35 +81,44 @@ export function EntryRow({ entry, issues, adminTicket, onPatch, onDelete }: Prop
           onAdmin={() => onPatch({ ticketKey: adminTicket })}
         />
 
-        <input
-          className="summary"
+        <TextField
           value={entry.summary}
           placeholder="What were you doing?"
           onChange={(e) => onPatch({ summary: e.target.value })}
-          aria-label="Summary"
+          size="small"
+          sx={{ flex: '1 1 160px', minWidth: '120px' }}
+          slotProps={{ htmlInput: { 'aria-label': 'Summary' } }}
         />
 
-        <div className="entry-actions">
+        <Box sx={{ display: 'flex', gap: 0.5, ml: 'auto' }}>
           {synced && (
-            <span className="synced-badge" title={`Logged to Tempo (worklog ${entry.tempoWorklogId})`}>
-              ✓ Tempo
-            </span>
+            <Chip
+              label="✓ Tempo"
+              size="small"
+              color="success"
+              variant="outlined"
+              title={`Logged to Tempo (worklog ${entry.tempoWorklogId})`}
+            />
           )}
-          <button type="button" className="delete-btn" title="Delete entry" onClick={onDelete}>
-            ×
-          </button>
-        </div>
-      </div>
+        </Box>
+      </Box>
 
       {issues.length > 0 && (
-        <ul className="entry-issues">
+        <List dense sx={{ fontSize: '0.8rem', pt: 0 }}>
           {issues.map((i, idx) => (
-            <li key={idx} className={i.level}>
-              {i.level === 'error' ? '⛔' : '⚠️'} {i.message}
-            </li>
+            <ListItem key={idx} sx={{ px: 0 }}>
+              {i.level === 'error' ? (
+                <ErrorIcon sx={{ color: theme.palette.error.main, mr: 0.5, fontSize: 16 }} />
+              ) : (
+                <WarningIcon sx={{ color: theme.palette.warning.main, mr: 0.5, fontSize: 16 }} />
+              )}
+              <Typography sx={{ color: i.level === 'error' ? theme.palette.error.main : theme.palette.warning.main }}>
+                {i.message}
+              </Typography>
+            </ListItem>
           ))}
-        </ul>
+        </List>
       )}
-    </div>
+    </Paper>
   )
 }
