@@ -16,7 +16,7 @@ import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 import dayjs from 'dayjs';
-import { ThemeProvider, CssBaseline, Stack, IconButton, Alert, Button, TextField, Paper, Typography, Box, Container } from '@mui/material';
+import { ThemeProvider, CssBaseline, Stack, IconButton, Alert, Button, TextField, Paper, Typography, Box, Container, Chip } from '@mui/material';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import TodayIcon from '@mui/icons-material/Today';
@@ -190,7 +190,9 @@ export function App() {
     return sum + (d && d > 0 ? d : 0)
   }, 0)
   const errorCount = allIssues.filter((i) => i.level === 'error').length
+  const warningCount = allIssues.filter((i) => i.level === 'warning').length
   const unsyncedCount = entries.filter((e) => !e.tempoWorklogId).length
+  const syncedCount = entries.length - unsyncedCount
   const pushDisabled = pushing || errorCount > 0 || unsyncedCount === 0
   const pushLabel = pushing
     ? 'Pushing…'
@@ -201,6 +203,29 @@ export function App() {
           ? 'All synced ✓'
           : 'Push day to Tempo'
         : `Push ${unsyncedCount} to Tempo`
+  const minDayMinutes = Math.round(config.minDayHours * 60)
+  const maxDayMinutes = Math.round(config.maxDayHours * 60)
+  const belowTarget = totalMinutes < minDayMinutes
+  const aboveTarget = totalMinutes > maxDayMinutes
+  const remainingToMinMinutes = Math.max(0, minDayMinutes - totalMinutes)
+  const overMaxMinutes = Math.max(0, totalMinutes - maxDayMinutes)
+  const targetLabel = belowTarget
+    ? `${formatHours(remainingToMinMinutes)} short of target`
+    : aboveTarget
+      ? `${formatHours(overMaxMinutes)} over target`
+      : `Within target range ${formatHours(minDayMinutes)}-${formatHours(maxDayMinutes)}`
+  const summaryTone = errorCount > 0 ? 'error' : warningCount > 0 ? 'warning' : syncedCount === entries.length && entries.length > 0 ? 'success' : 'info'
+  const statusLabel = errorCount > 0
+    ? 'Needs fixes'
+    : pushing
+      ? 'Pushing…'
+      : unsyncedCount === 0
+        ? entries.length
+          ? 'All synced'
+          : 'No entries yet'
+        : warningCount > 0
+          ? 'Ready with warnings'
+          : 'Ready to push'
 
   function gapBefore(i: number): number | null {
     if (i === 0) return null
@@ -312,6 +337,73 @@ export function App() {
                   {formatHours(totalMinutes)}
                 </Typography>
               </Stack>
+
+              <Paper
+                variant="outlined"
+                sx={{
+                  mb: 1.5,
+                  p: 1.25,
+                  borderColor:
+                    summaryTone === 'error'
+                      ? 'error.main'
+                      : summaryTone === 'warning'
+                        ? 'warning.main'
+                        : summaryTone === 'success'
+                          ? 'success.main'
+                          : 'divider',
+                }}
+              >
+                <Stack spacing={1}>
+                  <Stack
+                    direction={{ xs: 'column', sm: 'row' }}
+                    spacing={1}
+                    sx={{ alignItems: { xs: 'flex-start', sm: 'center' }, justifyContent: 'space-between' }}
+                  >
+                    <Box>
+                      <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                        Day health
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        {targetLabel}
+                      </Typography>
+                    </Box>
+                    <Chip
+                      label={statusLabel}
+                      color={summaryTone === 'info' ? 'default' : summaryTone}
+                      variant={summaryTone === 'success' ? 'filled' : 'outlined'}
+                      size="small"
+                    />
+                  </Stack>
+
+                  <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
+                    <Chip label={`${formatHours(totalMinutes)} logged`} size="small" variant="outlined" />
+                    <Chip
+                      label={`${syncedCount}/${entries.length} synced`}
+                      size="small"
+                      color={syncedCount > 0 ? 'success' : 'default'}
+                      variant="outlined"
+                    />
+                    <Chip
+                      label={`${unsyncedCount} unsynced`}
+                      size="small"
+                      color={unsyncedCount > 0 ? 'primary' : 'default'}
+                      variant="outlined"
+                    />
+                    <Chip
+                      label={`${errorCount} error${errorCount === 1 ? '' : 's'}`}
+                      size="small"
+                      color={errorCount > 0 ? 'error' : 'default'}
+                      variant="outlined"
+                    />
+                    <Chip
+                      label={`${warningCount} warning${warningCount === 1 ? '' : 's'}`}
+                      size="small"
+                      color={warningCount > 0 ? 'warning' : 'default'}
+                      variant="outlined"
+                    />
+                  </Stack>
+                </Stack>
+              </Paper>
 
               {loading ? (
                 <Typography variant="body2" color="text.secondary">Loading…</Typography>
