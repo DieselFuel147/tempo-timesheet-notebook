@@ -20,6 +20,7 @@ pub fn run() {
             commands::jira::get_profile,
             commands::jira::search_tickets,
             commands::day::get_day,
+            commands::day::save_day,
             commands::day::list_dates,
             commands::entry::upsert_entry,
             commands::entry::delete_entry,

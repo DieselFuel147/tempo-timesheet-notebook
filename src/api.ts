@@ -1,6 +1,6 @@
 import { defaultSettings, mergeSettings, type SaveSettingsInput, type Settings } from '../shared/settings'
-import { tauriCommandNames, type TicketSuggestion, type UpsertEntryInput } from '../shared/tauri-contracts'
-import type { Day, Entry, JiraProfile, PushSummary, DryRunSummary } from '../shared/types'
+import { tauriCommandNames, type SaveDayInput, type TicketSuggestion, type UpsertEntryInput } from '../shared/tauri-contracts'
+import type { Day, Entry, JiraProfile, NotebookDay, PushSummary, DryRunSummary } from '../shared/types'
 import { invokeCommand, isDesktopRuntime } from './api/desktopApi'
 
 async function parse<T>(res: Response): Promise<T> {
@@ -13,6 +13,7 @@ async function parse<T>(res: Response): Promise<T> {
 }
 
 export type EntrySave = UpsertEntryInput
+export type NotebookDaySave = SaveDayInput
 
 const jsonHeaders = { 'Content-Type': 'application/json' }
 
@@ -52,6 +53,10 @@ export const api = {
     isDesktopRuntime()
       ? invokeCommand(tauriCommandNames.getDay, { date })
       : fetch(`/api/day/${date}`).then((r) => parse<Day>(r)),
+  saveDay: (input: NotebookDaySave) =>
+    isDesktopRuntime()
+      ? invokeCommand(tauriCommandNames.saveDay, { input }).then((day) => day as NotebookDay)
+      : Promise.reject(new Error('Notebook day save is not implemented for the HTTP backend yet')),
   saveNotes: (date: string, notes: string) =>
     isDesktopRuntime()
       ? invokeCommand(tauriCommandNames.saveDayNotes, { date, notes })

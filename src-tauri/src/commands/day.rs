@@ -1,7 +1,7 @@
 use tauri::State;
 
 use crate::error::AppError;
-use crate::state::{AppState, Day};
+use crate::state::{AppState, Day, NotebookDay, SaveDayInput};
 
 #[tauri::command]
 pub fn get_day(date: String, state: State<'_, AppState>) -> Result<Day, AppError> {
@@ -11,6 +11,16 @@ pub fn get_day(date: String, state: State<'_, AppState>) -> Result<Day, AppError
         .map_err(|_| AppError::internal("Failed to lock repository"))?;
 
     repo.get_day(&date)
+}
+
+#[tauri::command]
+pub fn save_day(input: SaveDayInput, state: State<'_, AppState>) -> Result<NotebookDay, AppError> {
+    let mut repo = state
+        .repo
+        .lock()
+        .map_err(|_| AppError::internal("Failed to lock repository"))?;
+
+    repo.save_notebook_day(&input.day)
 }
 
 #[tauri::command]

@@ -69,6 +69,28 @@ pub struct Day {
     pub entries: Vec<Entry>,
 }
 
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotebookBlock {
+    pub id: String,
+    pub date: String,
+    pub start_minute: Option<i32>,
+    pub end_minute: Option<i32>,
+    pub text: String,
+    pub closed: bool,
+    pub ticket_id: String,
+    pub summary_override: Option<String>,
+    pub tempo_worklog_id: Option<i64>,
+    pub synced_at: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotebookDay {
+    pub date: String,
+    pub blocks: Vec<NotebookBlock>,
+}
+
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EntrySaveInput {
@@ -79,6 +101,12 @@ pub struct EntrySaveInput {
     pub ticket_key: String,
     pub summary: String,
     pub sort_order: Option<usize>,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveDayInput {
+    pub day: NotebookDay,
 }
 
 #[derive(Clone, Serialize)]
