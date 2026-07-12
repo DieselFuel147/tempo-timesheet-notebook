@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { db } from './index'
-import type { Day, Entry } from '../../shared/types'
+import type { Day, Entry, NotebookBlock, NotebookDay } from '../../shared/types'
 import { defaultSettings, mergeSettings, type Settings } from '../../shared/settings'
 
 interface EntryRow {
@@ -10,6 +10,21 @@ interface EntryRow {
   end_time: string
   ticket_key: string
   summary: string
+  sort_order: number
+  tempo_worklog_id: number | null
+  synced_at: string | null
+  updated_at: string
+}
+
+interface NotebookBlockRow {
+  id: string
+  date: string
+  start_minute: number | null
+  end_minute: number | null
+  text: string
+  closed: number
+  ticket_id: string
+  summary_override: string | null
   sort_order: number
   tempo_worklog_id: number | null
   synced_at: string | null
@@ -29,23 +44,122 @@ function rowToEntry(r: EntryRow): Entry {
   }
 }
 
+function rowToNotebookBlock(row: NotebookBlockRow): NotebookBlock {
+  return {
+    id: row.id,
+    date: row.date,
+    startMinute: row.start_minute,
+    endMinute: row.end_minute,
+    text: row.text,
+    closed: row.closed !== 0,
+    ticketId: row.ticket_id,
+    summaryOverride: row.summary_override,
+    tempoWorklogId: row.tempo_worklog_id,
+    syncedAt: row.synced_at,
+  }
+}
+
+function minutesToHHmm(minutes: number): string {
+  const normalized = ((minutes % 1440) + 1440) % 1440
+  return `${String(Math.floor(normalized / 60)).padStart(2, '0')}:${String(normalized % 60).padStart(2, '0')}`
+}
+
+function notebookBlockToEntry(block: NotebookBlock): Entry | null {
+  if (block.startMinute === null || block.endMinute === null) return null
+  return {
+    id: block.id,
+    date: block.date,
+    start: minutesToHHmm(block.startMinute),
+    end: minutesToHHmm(block.endMinute),
+    ticketKey: block.ticketId,
+    summary: block.summaryOverride ?? block.text,
+    tempoWorklogId: block.tempoWorklogId,
+    syncedAt: block.syncedAt,
+  }
+}
+
 const now = () => new Date().toISOString()
 
 export function getDay(date: string): Day {
-  const dayRow = db.prepare('SELECT notes FROM days WHERE date = ?').get(date) as
-    | { notes: string }
-    | undefined
+  const notebookDay = getNotebookDay(date)
+  return {
+    date,
+    notes: '',
+    entries: notebookDay.blocks.map(notebookBlockToEntry).filter((entry): entry is Entry => entry !== null),
+  }
+}
+
+export function getNotebookDay(date: string): NotebookDay {
   const rows = db
-    .prepare('SELECT * FROM entries WHERE date = ? ORDER BY sort_order, start_time')
-    .all(date) as EntryRow[]
-  return { date, notes: dayRow?.notes ?? '', entries: rows.map(rowToEntry) }
+    .prepare('SELECT * FROM notebook_blocks WHERE date = ? ORDER BY sort_order, COALESCE(start_minute, 2147483647), id')
+    .all(date) as NotebookBlockRow[]
+
+  return {
+    date,
+    blocks: rows.map(rowToNotebookBlock),
+  }
+}
+
+export function saveNotebookDay(day: NotebookDay): NotebookDay {
+  const timestamp = now()
+  const transaction = db.transaction((input: NotebookDay) => {
+    db.prepare(
+      `INSERT INTO notebook_days (date, updated_at) VALUES (?, ?)
+       ON CONFLICT(date) DO UPDATE SET updated_at = excluded.updated_at`,
+    ).run(input.date, timestamp)
+
+    db.prepare('DELETE FROM notebook_blocks WHERE date = ?').run(input.date)
+
+    const insert = db.prepare(
+      `INSERT INTO notebook_blocks (
+         id, date, start_minute, end_minute, text, closed, ticket_id, summary_override,
+         sort_order, tempo_worklog_id, synced_at, updated_at
+       ) VALUES (
+         @id, @date, @startMinute, @endMinute, @text, @closed, @ticketId, @summaryOverride,
+         @sortOrder, @tempoWorklogId, @syncedAt, @updatedAt
+       )`,
+    )
+
+    input.blocks.forEach((block, sortOrder) => {
+      insert.run({
+        id: block.id,
+        date: input.date,
+        startMinute: block.startMinute,
+        endMinute: block.endMinute,
+        text: block.text,
+        closed: block.closed ? 1 : 0,
+        ticketId: block.ticketId,
+        summaryOverride: block.summaryOverride ?? null,
+        sortOrder,
+        tempoWorklogId: block.tempoWorklogId ?? null,
+        syncedAt: block.syncedAt ?? null,
+        updatedAt: timestamp,
+      })
+    })
+  })
+
+  transaction(day)
+  return getNotebookDay(day.date)
 }
 
 export function saveNotes(date: string, notes: string): void {
-  db.prepare(
-    `INSERT INTO days (date, notes, updated_at) VALUES (?, ?, ?)
-     ON CONFLICT(date) DO UPDATE SET notes = excluded.notes, updated_at = excluded.updated_at`,
-  ).run(date, notes, now())
+  const day = getNotebookDay(date)
+  const blocks = day.blocks.filter((block) => !(block.startMinute === null && block.ticketId.trim() === ''))
+  if (notes.trim()) {
+    blocks.push({
+      id: randomUUID(),
+      date,
+      startMinute: null,
+      endMinute: null,
+      text: notes,
+      closed: false,
+      ticketId: '',
+      summaryOverride: 'Legacy notes',
+      tempoWorklogId: null,
+      syncedAt: null,
+    })
+  }
+  saveNotebookDay({ date, blocks })
 }
 
 export interface EntryInput {
@@ -90,7 +204,7 @@ export function deleteEntry(id: string): void {
 }
 
 export function markSynced(id: string, tempoWorklogId: number): void {
-  db.prepare('UPDATE entries SET tempo_worklog_id = ?, synced_at = ? WHERE id = ?').run(
+  db.prepare('UPDATE notebook_blocks SET tempo_worklog_id = ?, synced_at = ? WHERE id = ?').run(
     tempoWorklogId,
     now(),
     id,
@@ -99,7 +213,7 @@ export function markSynced(id: string, tempoWorklogId: number): void {
 
 export function listDates(): string[] {
   const rows = db
-    .prepare('SELECT date FROM entries UNION SELECT date FROM days ORDER BY date DESC')
+    .prepare('SELECT date FROM notebook_blocks UNION SELECT date FROM notebook_days ORDER BY date DESC')
     .all() as { date: string }[]
   return rows.map((r) => r.date)
 }

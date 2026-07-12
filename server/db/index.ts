@@ -49,4 +49,25 @@ db.exec(`
     value TEXT NOT NULL,
     updated_at TEXT NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS notebook_days (
+    date TEXT PRIMARY KEY,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS notebook_blocks (
+    id TEXT PRIMARY KEY,
+    date TEXT NOT NULL,
+    start_minute INTEGER,
+    end_minute INTEGER,
+    text TEXT NOT NULL DEFAULT '',
+    closed INTEGER NOT NULL DEFAULT 0,
+    ticket_id TEXT NOT NULL DEFAULT '',
+    summary_override TEXT,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    tempo_worklog_id INTEGER,
+    synced_at TEXT,
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_notebook_blocks_date ON notebook_blocks(date);
 `)

@@ -6,6 +6,7 @@ import type { TempoClient } from './tempo/client'
 import * as repo from './db/repo'
 import { pushDay } from './push'
 import { mergeSettings, thresholdSchema } from '../shared/settings'
+import type { NotebookDay } from '../shared/types'
 
 export interface RouteDeps {
   jira: JiraClient
@@ -22,6 +23,24 @@ const entryBody = z.object({
   ticketKey: z.string(),
   summary: z.string(),
   sortOrder: z.number().optional(),
+})
+const notebookBlockBody = z.object({
+  id: z.string(),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  startMinute: z.number().nullable(),
+  endMinute: z.number().nullable(),
+  text: z.string(),
+  closed: z.boolean(),
+  ticketId: z.string(),
+  summaryOverride: z.string().nullable().optional(),
+  tempoWorklogId: z.number().nullable().optional(),
+  syncedAt: z.string().nullable().optional(),
+})
+const notebookDayBody = z.object({
+  day: z.object({
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    blocks: z.array(notebookBlockBody),
+  }),
 })
 
 export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
@@ -40,7 +59,12 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
 
   app.get('/api/day/:date', async (req) => {
     const { date } = dateParam.parse(req.params)
-    return repo.getDay(date)
+    return repo.getNotebookDay(date)
+  })
+
+  app.put('/api/day', async (req) => {
+    const { day } = notebookDayBody.parse(req.body) as { day: NotebookDay }
+    return repo.saveNotebookDay(day)
   })
 
   app.put('/api/day/:date/notes', async (req) => {

@@ -1,12 +1,15 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import SettingsIcon from '@mui/icons-material/Settings'
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import TodayIcon from '@mui/icons-material/Today'
+import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp'
+import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
 import EditIcon from '@mui/icons-material/Edit'
 import CheckIcon from '@mui/icons-material/Check'
 import UndoIcon from '@mui/icons-material/Undo'
 import LinkIcon from '@mui/icons-material/Link'
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined'
 import type { JiraProfile, NotebookBlock, NotebookDay } from '../shared/types'
 import { defaultSettings, type Settings as AppSettings } from '../shared/settings'
 import { notebookBlockSummary } from '../shared/notebook'
@@ -39,7 +42,15 @@ const IDLE_THRESHOLD_MS = 3 * 60 * 1000
 const TIMELINE_REFRESH_MS = 1000
 const PX_PER_MINUTE = 2
 const MIN_BLOCK_HEIGHT = 42
+const MIN_BLOCK_DURATION_MINUTES = 1
 const COLORS = ['#5b86f7', '#8a6bf0', '#39b88f', '#e0a13a', '#d46b91']
+const DEBUG_TIME_SCALE = Number(import.meta.env.VITE_NOTEBOOK_TIME_SCALE ?? '1')
+
+interface DayTimeAnchor {
+  date: string
+  wallClockStartMs: number
+  minuteBase: number
+}
 
 function cloneSettings(settings: AppSettings): AppSettings {
   return {
@@ -75,6 +86,14 @@ function cloneBlock(block: NotebookBlock): NotebookBlock {
   }
 }
 
+function markBlockDirty(block: NotebookBlock): NotebookBlock {
+  return {
+    ...block,
+    tempoWorklogId: null,
+    syncedAt: null,
+  }
+}
+
 function normalizeNotebookDay(day: NotebookDay): NotebookDay {
   const clonedBlocks = day.blocks.map(cloneBlock)
   const blocks = clonedBlocks.length > 0 ? clonedBlocks : [createBlankBlock(day.date)]
@@ -97,11 +116,15 @@ function persistedNotebookDay(day: NotebookDay): NotebookDay {
   }
 }
 
-function nowMinuteForDate(date: string): number {
+function wallClockMinuteForDate(date: string): number {
   const now = new Date()
   const today = todayISO()
   if (date !== today) return 17 * 60
-  return now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60
+  return now.getHours() * 60 + now.getMinutes()
+}
+
+function effectiveIdleThresholdMs(): number {
+  return IDLE_THRESHOLD_MS / Math.max(DEBUG_TIME_SCALE, 0.0001)
 }
 
 function blockDuration(block: NotebookBlock, nowMinute: number): number | null {
@@ -109,6 +132,28 @@ function blockDuration(block: NotebookBlock, nowMinute: number): number | null {
   const endMinute = block.closed ? block.endMinute : nowMinute
   if (endMinute === null) return null
   return Math.max(0, endMinute - block.startMinute)
+}
+
+interface TimedBlockInfo {
+  block: NotebookBlock
+  index: number
+  startMinute: number
+  endMinute: number
+}
+
+function getTimedBlocks(blocks: NotebookBlock[], nowMinute: number): TimedBlockInfo[] {
+  return blocks
+    .map((block, index) => {
+      if (block.startMinute === null) return null
+      return {
+        block,
+        index,
+        startMinute: block.startMinute,
+        endMinute: block.closed ? block.endMinute ?? block.startMinute : nowMinute,
+      }
+    })
+    .filter((item): item is TimedBlockInfo => item !== null)
+    .sort((left, right) => left.startMinute - right.startMinute)
 }
 
 function isPersistedBlock(block: NotebookBlock): boolean {
@@ -147,6 +192,7 @@ interface NotebookEditorPanelProps {
   onTextChange: (id: string, value: string, eventTarget?: HTMLTextAreaElement | null) => void
   onTicketChange: (id: string, ticketId: string) => void
   onSelectSummaryEdit: (id: string) => void
+  onDeleteBlock: (id: string) => void
   activeReopenableId: string | null
   getTextAreaRef: (id: string) => (element: HTMLTextAreaElement | null) => void
 }
@@ -158,10 +204,11 @@ const NotebookEditorPanel = memo(function NotebookEditorPanel({
   onTextChange,
   onTicketChange,
   onSelectSummaryEdit,
+  onDeleteBlock,
   activeReopenableId,
   getTextAreaRef,
 }: NotebookEditorPanelProps) {
-  const lastStartedId = blocks.findLast((block) => block.startMinute !== null && !block.closed)?.id ?? null
+  const activeStartedId = blocks.findLast((block) => block.startMinute !== null && !block.closed)?.id ?? null
 
   return (
     <Box>
@@ -177,7 +224,7 @@ const NotebookEditorPanel = memo(function NotebookEditorPanel({
           const ticketInvalid = issues.some((issue) => issue.code === 'INVALID_TICKET' && issue.level === 'error')
           const isBlank = !isPersistedBlock(block)
           const isReopenable = block.id === activeReopenableId
-          const isLive = block.id === lastStartedId
+          const isLive = block.id === activeStartedId
           const summary = notebookBlockSummary(block)
 
           return (
@@ -265,9 +312,19 @@ const NotebookEditorPanel = memo(function NotebookEditorPanel({
                     Summary: {summary}
                   </Typography>
                   {!isBlank && (
-                    <Button size="small" startIcon={<EditIcon />} onClick={() => onSelectSummaryEdit(block.id)}>
-                      Edit summary
-                    </Button>
+                    <Stack direction="row" spacing={1}>
+                      <Button size="small" startIcon={<EditIcon />} onClick={() => onSelectSummaryEdit(block.id)}>
+                        Edit summary
+                      </Button>
+                      <Button
+                        size="small"
+                        color="error"
+                        startIcon={<DeleteOutlineIcon />}
+                        onClick={() => onDeleteBlock(block.id)}
+                      >
+                        Delete
+                      </Button>
+                    </Stack>
                   )}
                 </Stack>
 
@@ -299,9 +356,21 @@ interface TimelinePanelProps {
   expandedId: string | null
   onToggleExpand: (id: string) => void
   onSelectSummaryEdit: (id: string) => void
+  onAbsorbGap: (id: string, direction: 'up' | 'down') => void
+  onMerge: (id: string, direction: 'prev' | 'next') => void
+  onPinPointerDown: (id: string, edge: 'start' | 'end', event: ReactPointerEvent<HTMLDivElement>) => void
 }
 
-function TimelinePanel({ blocks, nowMinute, expandedId, onToggleExpand, onSelectSummaryEdit }: TimelinePanelProps) {
+function TimelinePanel({
+  blocks,
+  nowMinute,
+  expandedId,
+  onToggleExpand,
+  onSelectSummaryEdit,
+  onAbsorbGap,
+  onMerge,
+  onPinPointerDown,
+}: TimelinePanelProps) {
   const ticketCounts = useMemo(() => {
     const counts = new Map<string, number>()
     for (const block of blocks) {
@@ -328,17 +397,56 @@ function TimelinePanel({ blocks, nowMinute, expandedId, onToggleExpand, onSelect
     return colors
   }, [blocks])
 
-  const timedBlocks = blocks.filter((block) => block.startMinute !== null)
-  const maxMinute = Math.max(nowMinute, ...timedBlocks.map((block) => (block.closed ? block.endMinute ?? nowMinute : nowMinute)), 17 * 60)
-  const timelineHeight = Math.max(320, maxMinute * PX_PER_MINUTE + 64)
+  const timedBlocks = useMemo(() => getTimedBlocks(blocks, nowMinute), [blocks, nowMinute])
+  const minVisibleMinute = useMemo(() => {
+    const firstMinute = timedBlocks.length > 0 ? Math.min(...timedBlocks.map((block) => block.startMinute), nowMinute) : nowMinute
+    return Math.max(0, Math.floor((firstMinute - 30) / 60) * 60)
+  }, [nowMinute, timedBlocks])
+
+  const maxMinute = Math.max(nowMinute, ...timedBlocks.map((block) => block.endMinute), minVisibleMinute + 120)
+  const timelineHeight = Math.max(320, (maxMinute - minVisibleMinute) * PX_PER_MINUTE + 64)
+
+  const ticketPositions = useMemo(() => {
+    const positions = new Map<string, Array<{ top: number; bottom: number; color: string }>>()
+    for (const timedBlock of timedBlocks) {
+      const ticketId = timedBlock.block.ticketId.trim()
+      if (!ticketId) continue
+      const color = ticketColors.get(ticketId) ?? COLORS[0]
+      const top = (timedBlock.startMinute - minVisibleMinute) * PX_PER_MINUTE + 16
+      const bottom = (timedBlock.endMinute - minVisibleMinute) * PX_PER_MINUTE + 16
+      const list = positions.get(ticketId) ?? []
+      list.push({ top, bottom, color })
+      positions.set(ticketId, list)
+    }
+    return positions
+  }, [minVisibleMinute, ticketColors, timedBlocks])
+
+  const connectors = useMemo(() => {
+    const items: Array<{ id: string; top: number; height: number; color: string }> = []
+    ticketPositions.forEach((positions, ticketId) => {
+      for (let index = 0; index < positions.length - 1; index += 1) {
+        const current = positions[index]
+        const next = positions[index + 1]
+        const height = Math.max(0, next.top - current.bottom)
+        if (height <= 0) continue
+        items.push({
+          id: `${ticketId}-${index}`,
+          top: current.bottom,
+          height,
+          color: current.color,
+        })
+      }
+    })
+    return items
+  }, [ticketPositions])
 
   return (
     <Box sx={{ position: 'relative', minHeight: timelineHeight, pr: 1, pl: 5, py: 2 }}>
-      {Array.from({ length: Math.ceil(maxMinute / 60) + 2 }).map((_, hourIndex) => {
-        const minute = hourIndex * 60
+      {Array.from({ length: Math.ceil((maxMinute - minVisibleMinute) / 60) + 2 }).map((_, hourIndex) => {
+        const minute = minVisibleMinute + hourIndex * 60
         if (minute > maxMinute + 60) return null
         return (
-          <Box key={minute} sx={{ position: 'absolute', insetInline: 0, top: minute * PX_PER_MINUTE + 16 }}>
+          <Box key={minute} sx={{ position: 'absolute', insetInline: 0, top: (minute - minVisibleMinute) * PX_PER_MINUTE + 16 }}>
             <Typography
               variant="caption"
               sx={{ position: 'absolute', left: -40, top: -8, color: 'text.secondary', fontVariantNumeric: 'tabular-nums' }}
@@ -350,70 +458,196 @@ function TimelinePanel({ blocks, nowMinute, expandedId, onToggleExpand, onSelect
         )
       })}
 
-      {timedBlocks.map((block, index) => {
-        const startMinute = block.startMinute ?? 0
-        const endMinute = block.closed ? block.endMinute ?? startMinute : nowMinute
+      {connectors.map((connector) => (
+        <Box
+          key={connector.id}
+          sx={{
+            position: 'absolute',
+            top: connector.top,
+            left: 20,
+            height: connector.height,
+            borderLeft: `2px dashed ${connector.color}`,
+            opacity: 0.55,
+          }}
+        />
+      ))}
+
+      {timedBlocks.map((timedBlock, index) => {
+        const { block } = timedBlock
+        const startMinute = timedBlock.startMinute
+        const endMinute = timedBlock.endMinute
         const duration = Math.max(1, endMinute - startMinute)
         const height = Math.max(MIN_BLOCK_HEIGHT, duration * PX_PER_MINUTE)
-        const top = startMinute * PX_PER_MINUTE + 16
+        const top = (startMinute - minVisibleMinute) * PX_PER_MINUTE + 16
         const ticketId = block.ticketId.trim()
         const color = ticketId ? ticketColors.get(ticketId) ?? COLORS[index % COLORS.length] : COLORS[index % COLORS.length]
         const ticketCount = ticketId ? ticketCounts.get(ticketId) ?? 0 : 0
         const summary = notebookBlockSummary(block)
         const expanded = expandedId === block.id
+        const previous = timedBlocks[index - 1]
+        const next = timedBlocks[index + 1]
+        const gapAbove = previous ? Math.max(0, startMinute - previous.endMinute) : 0
+        const gapBelow = next ? Math.max(0, next.startMinute - endMinute) : 0
+        const showAbsorbUp = expanded && block.closed && gapAbove > 0
+        const showAbsorbDown = expanded && block.closed && gapBelow > 0
+        const canMergePrev = expanded && block.closed && !!previous?.block.closed
+        const canMergeNext = expanded && block.closed && !!next?.block.closed
 
         return (
-          <Paper
-            key={block.id}
-            elevation={0}
-            onClick={() => block.closed && onToggleExpand(block.id)}
-            sx={{
-              position: 'absolute',
-              top,
-              left: 16,
-              right: 0,
-              minHeight: height,
-              p: 1,
-              bgcolor: color,
-              color: '#fff',
-              borderRadius: 1.5,
-              cursor: block.closed ? 'pointer' : 'default',
-              boxShadow: expanded ? '0 0 0 2px rgba(255,255,255,0.5)' : 'none',
-            }}
-          >
-            <Stack spacing={0.75}>
-              <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
-                <Typography variant="caption" sx={{ fontVariantNumeric: 'tabular-nums', color: 'rgba(255,255,255,0.9)' }}>
-                  {`${String(Math.floor(startMinute / 60)).padStart(2, '0')}:${String(startMinute % 60).padStart(2, '0')} - ${
-                    block.closed
-                      ? `${String(Math.floor(endMinute / 60)).padStart(2, '0')}:${String(endMinute % 60).padStart(2, '0')}`
-                      : 'now'
-                  }`}
-                </Typography>
-                {ticketId && (
-                  <Chip
-                    size="small"
-                    icon={ticketCount > 1 ? <LinkIcon sx={{ color: '#fff !important' }} /> : undefined}
-                    label={ticketCount > 1 ? `${ticketId} · ${ticketCount}` : ticketId}
-                    sx={{ bgcolor: 'rgba(0,0,0,0.2)', color: '#fff' }}
+          <Box key={block.id} sx={{ position: 'absolute', top, left: 16, right: 0 }}>
+            {gapAbove > 0 && (
+              <Box
+                sx={{
+                  position: 'absolute',
+              top: -gapAbove * PX_PER_MINUTE,
+                  left: 4,
+                  width: 8,
+                  height: Math.max(6, gapAbove * PX_PER_MINUTE),
+                  background:
+                    'repeating-linear-gradient(135deg, rgba(255,255,255,0.16), rgba(255,255,255,0.16) 4px, transparent 4px, transparent 8px)',
+                  opacity: 0.7,
+                }}
+              />
+            )}
+
+            <Paper
+              elevation={0}
+              onClick={() => block.closed && onToggleExpand(block.id)}
+              sx={{
+                position: 'relative',
+                minHeight: height,
+                p: 1,
+                bgcolor: color,
+                color: '#fff',
+                borderRadius: 1.5,
+                cursor: block.closed ? 'pointer' : 'default',
+                boxShadow: expanded ? '0 0 0 2px rgba(255,255,255,0.5)' : 'none',
+              }}
+            >
+              {expanded && block.closed && (
+                <>
+                  <Box
+                    onPointerDown={(event) => onPinPointerDown(block.id, 'start', event)}
+                    onClick={(event) => event.stopPropagation()}
+                    sx={{
+                      position: 'absolute',
+                      left: -7,
+                      top: -7,
+                      width: 16,
+                      height: 16,
+                      borderRadius: '50%',
+                      bgcolor: 'warning.main',
+                      border: '2px solid #fff',
+                      touchAction: 'none',
+                      cursor: 'ns-resize',
+                    }}
                   />
+                  <Box
+                    onPointerDown={(event) => onPinPointerDown(block.id, 'end', event)}
+                    onClick={(event) => event.stopPropagation()}
+                    sx={{
+                      position: 'absolute',
+                      left: -7,
+                      bottom: -7,
+                      width: 16,
+                      height: 16,
+                      borderRadius: '50%',
+                      bgcolor: 'warning.main',
+                      border: '2px solid #fff',
+                      touchAction: 'none',
+                      cursor: 'ns-resize',
+                    }}
+                  />
+                </>
+              )}
+
+              {showAbsorbUp && (
+                <IconButton
+                  size="small"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onAbsorbGap(block.id, 'up')
+                  }}
+                  sx={{
+                    position: 'absolute',
+                    top: -16,
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    bgcolor: 'rgba(0,0,0,0.55)',
+                    color: '#fff',
+                    '&:hover': { bgcolor: 'rgba(0,0,0,0.75)' },
+                  }}
+                >
+                  <KeyboardArrowUpIcon fontSize="small" />
+                </IconButton>
+              )}
+
+              {showAbsorbDown && (
+                <IconButton
+                  size="small"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onAbsorbGap(block.id, 'down')
+                  }}
+                  sx={{
+                    position: 'absolute',
+                    bottom: -16,
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    bgcolor: 'rgba(0,0,0,0.55)',
+                    color: '#fff',
+                    '&:hover': { bgcolor: 'rgba(0,0,0,0.75)' },
+                  }}
+                >
+                  <KeyboardArrowDownIcon fontSize="small" />
+                </IconButton>
+              )}
+
+              <Stack spacing={0.75}>
+                <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Typography variant="caption" sx={{ fontVariantNumeric: 'tabular-nums', color: 'rgba(255,255,255,0.9)' }}>
+                    {`${String(Math.floor(startMinute / 60)).padStart(2, '0')}:${String(startMinute % 60).padStart(2, '0')} - ${
+                      block.closed
+                        ? `${String(Math.floor(endMinute / 60)).padStart(2, '0')}:${String(endMinute % 60).padStart(2, '0')}`
+                        : 'now'
+                    }`}
+                  </Typography>
+                  {ticketId && (
+                    <Chip
+                      size="small"
+                      icon={ticketCount > 1 ? <LinkIcon sx={{ color: '#fff !important' }} /> : undefined}
+                      label={ticketCount > 1 ? `${ticketId} · ${ticketCount}` : ticketId}
+                      sx={{ bgcolor: 'rgba(0,0,0,0.2)', color: '#fff' }}
+                    />
+                  )}
+                </Stack>
+
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                  {summary}
+                </Typography>
+
+                {expanded && (
+                  <Stack spacing={1} onClick={(event) => event.stopPropagation()}>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                      <Button size="small" variant="contained" color="inherit" onClick={() => onSelectSummaryEdit(block.id)}>
+                        Edit summary
+                      </Button>
+                      {canMergePrev && (
+                        <Button size="small" variant="contained" color="inherit" onClick={() => onMerge(block.id, 'prev')}>
+                          Merge with previous
+                        </Button>
+                      )}
+                      {canMergeNext && (
+                        <Button size="small" variant="contained" color="inherit" onClick={() => onMerge(block.id, 'next')}>
+                          Merge with next
+                        </Button>
+                      )}
+                    </Stack>
+                  </Stack>
                 )}
               </Stack>
-
-              <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                {summary}
-              </Typography>
-
-              {expanded && (
-                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-                  <Button size="small" variant="contained" color="inherit" onClick={(event) => { event.stopPropagation(); onSelectSummaryEdit(block.id) }}>
-                    Edit summary
-                  </Button>
-                  <Chip size="small" label="Phase 4: drag, absorb gap, merge" sx={{ bgcolor: 'rgba(0,0,0,0.2)', color: '#fff' }} />
-                </Stack>
-              )}
-            </Stack>
-          </Paper>
+            </Paper>
+          </Box>
         )
       })}
     </Box>
@@ -436,12 +670,31 @@ export function App() {
   const dayRef = useRef<NotebookDay | null>(null)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastActivityRef = useRef<number | null>(null)
+  const dayTimeAnchorRef = useRef<DayTimeAnchor | null>(null)
   const textAreaRefs = useRef<Record<string, HTMLTextAreaElement | null>>({})
   const textAreaRefCallbacks = useRef(new Map<string, (element: HTMLTextAreaElement | null) => void>())
 
   useEffect(() => {
     dayRef.current = day
   }, [day])
+
+  const getCurrentMinute = useCallback((forDate: string) => {
+    const now = Date.now()
+    const minuteBase = wallClockMinuteForDate(forDate)
+    const anchor = dayTimeAnchorRef.current
+
+    if (!anchor || anchor.date !== forDate) {
+      dayTimeAnchorRef.current = {
+        date: forDate,
+        wallClockStartMs: now,
+        minuteBase,
+      }
+      return minuteBase
+    }
+
+    const elapsedMinutes = ((now - anchor.wallClockStartMs) / 60000) * DEBUG_TIME_SCALE
+    return Math.floor(anchor.minuteBase + elapsedMinutes)
+  }, [])
 
   useEffect(() => {
     api.profile().then(setProfile).catch(() => setProfile(null))
@@ -452,15 +705,31 @@ export function App() {
     let cancelled = false
     setLoading(true)
     setError(null)
-      api
-        .getDay(date)
-        .then((loaded) => {
-          if (cancelled) return
-          setDay(normalizeNotebookDay(loaded))
-          lastActivityRef.current = null
-        })
+    api
+      .getDay(date)
+      .then((loaded) => {
+        if (cancelled) return
+        setDay(normalizeNotebookDay(loaded))
+        lastActivityRef.current = null
+        dayTimeAnchorRef.current = {
+          date: loaded.date,
+          wallClockStartMs: Date.now(),
+          minuteBase: wallClockMinuteForDate(loaded.date),
+        }
+        setExpandedId(null)
+        setSummaryEditorId(null)
+        setSummaryDraft('')
+      })
       .catch((cause) => {
-        if (!cancelled) setError((cause as Error).message)
+        if (cancelled) return
+        setError((cause as Error).message)
+        const fallbackDay = normalizeNotebookDay({ date, blocks: [] })
+        setDay(fallbackDay)
+        dayTimeAnchorRef.current = {
+          date,
+          wallClockStartMs: Date.now(),
+          minuteBase: wallClockMinuteForDate(date),
+        }
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -470,15 +739,22 @@ export function App() {
     }
   }, [date])
 
+  const scheduleSave = useCallback((nextDay: NotebookDay) => {
+    if (saveTimer.current) clearTimeout(saveTimer.current)
+    saveTimer.current = setTimeout(() => {
+      api.saveDay({ day: persistedNotebookDay(nextDay) }).catch((cause) => setError(`Save failed: ${(cause as Error).message}`))
+    }, 500)
+  }, [])
+
   useEffect(() => {
     const handle = setInterval(() => {
       setTimelineTick((tick) => tick + 1)
       const lastActivity = lastActivityRef.current
       const currentDay = dayRef.current
       if (!currentDay || lastActivity === null) return
-      if (Date.now() - lastActivity < IDLE_THRESHOLD_MS) return
+      if (Date.now() - lastActivity < effectiveIdleThresholdMs()) return
 
-      const nowMinute = nowMinuteForDate(currentDay.date)
+      const nowMinute = getCurrentMinute(currentDay.date)
       const activeIndex = currentDay.blocks.findIndex((block) => block.startMinute !== null && !block.closed)
       if (activeIndex === -1) return
 
@@ -492,14 +768,7 @@ export function App() {
     }, TIMELINE_REFRESH_MS)
 
     return () => clearInterval(handle)
-  }, [])
-
-  const scheduleSave = useCallback((nextDay: NotebookDay) => {
-    if (saveTimer.current) clearTimeout(saveTimer.current)
-    saveTimer.current = setTimeout(() => {
-      api.saveDay({ day: persistedNotebookDay(nextDay) }).catch((cause) => setError(`Save failed: ${(cause as Error).message}`))
-    }, 500)
-  }, [])
+  }, [getCurrentMinute, scheduleSave])
 
   const commitDay = useCallback((update: (current: NotebookDay) => NotebookDay, save = true) => {
     const currentDay = dayRef.current
@@ -517,6 +786,10 @@ export function App() {
       })
     }
     return textAreaRefCallbacks.current.get(id) as (element: HTMLTextAreaElement | null) => void
+  }, [])
+
+  const replaceBlockById = useCallback((blocks: NotebookBlock[], id: string, mutate: (block: NotebookBlock) => NotebookBlock) => {
+    return blocks.map((block) => (block.id === id ? mutate(block) : block))
   }, [])
 
   const activeReopenableId = useMemo(() => {
@@ -538,12 +811,13 @@ export function App() {
   const handleTextChange = useCallback((id: string, value: string, eventTarget?: HTMLTextAreaElement | null) => {
     lastActivityRef.current = Date.now()
     commitDay((currentDay) => {
-      const nowMinute = nowMinuteForDate(currentDay.date)
+      const nowMinute = getCurrentMinute(currentDay.date)
       const index = currentDay.blocks.findIndex((block) => block.id === id)
       if (index === -1) return currentDay
       const blocks = currentDay.blocks.map(cloneBlock)
       const block = blocks[index]
-      const isTrailingBlank = index === blocks.length - 1 && block.startMinute === null
+      const isUnstartedDraft = block.startMinute === null && !block.closed
+      const isTrailingBlank = index === blocks.length - 1 && isUnstartedDraft
       const reopenableId = (() => {
         if (blocks.length < 2) return null
         const previous = blocks[blocks.length - 2]
@@ -559,6 +833,7 @@ export function App() {
         }
         return null
       })()
+      const activeIndex = blocks.findIndex((candidate) => candidate.startMinute !== null && !candidate.closed)
 
       if (reopenableId === id) {
         blocks[index] = {
@@ -571,8 +846,7 @@ export function App() {
         return { date: currentDay.date, blocks }
       }
 
-      if (isTrailingBlank) {
-        const activeIndex = blocks.findIndex((candidate) => candidate.startMinute !== null && !candidate.closed)
+      if (isUnstartedDraft) {
         if (activeIndex !== -1) {
           blocks[activeIndex] = {
             ...blocks[activeIndex],
@@ -587,7 +861,7 @@ export function App() {
           closed: false,
           text: value,
         }
-        blocks.push(createBlankBlock(currentDay.date))
+        if (isTrailingBlank) blocks.push(createBlankBlock(currentDay.date))
         return { date: currentDay.date, blocks }
       }
 
@@ -599,7 +873,7 @@ export function App() {
       eventTarget.style.height = 'auto'
       eventTarget.style.height = `${eventTarget.scrollHeight}px`
     }
-  }, [commitDay])
+  }, [commitDay, getCurrentMinute])
 
   const handleTicketChange = useCallback((id: string, ticketId: string) => {
     commitDay((currentDay) => ({
@@ -607,6 +881,130 @@ export function App() {
       blocks: currentDay.blocks.map((block) => (block.id === id ? { ...block, ticketId } : block)),
     }))
   }, [commitDay])
+
+  const handleDeleteBlock = useCallback((id: string) => {
+    commitDay((currentDay) => ({
+      date: currentDay.date,
+      blocks: currentDay.blocks.filter((block) => block.id !== id),
+    }))
+    setExpandedId((current) => (current === id ? null : current))
+    setSummaryEditorId((current) => (current === id ? null : current))
+    setSummaryDraft((draft) => (summaryEditorId === id ? '' : draft))
+  }, [commitDay, summaryEditorId])
+
+  const handleAbsorbGap = useCallback((id: string, direction: 'up' | 'down') => {
+    commitDay((currentDay) => {
+      const timedBlocks = getTimedBlocks(currentDay.blocks, getCurrentMinute(currentDay.date))
+      const timedIndex = timedBlocks.findIndex((item) => item.block.id === id)
+      if (timedIndex === -1) return currentDay
+
+      const current = timedBlocks[timedIndex]
+      const neighbor = direction === 'up' ? timedBlocks[timedIndex - 1] : timedBlocks[timedIndex + 1]
+      if (!neighbor || !current.block.closed || !neighbor.block.closed) return currentDay
+
+      const updatedBlocks = replaceBlockById(currentDay.blocks, id, (block) => {
+        const dirty = markBlockDirty(block)
+        return direction === 'up'
+          ? { ...dirty, startMinute: neighbor.endMinute }
+          : { ...dirty, endMinute: neighbor.startMinute }
+      })
+
+      return { date: currentDay.date, blocks: updatedBlocks }
+    })
+  }, [commitDay, getCurrentMinute, replaceBlockById])
+
+  const handleMerge = useCallback((id: string, direction: 'prev' | 'next') => {
+    commitDay((currentDay) => {
+      const timedBlocks = getTimedBlocks(currentDay.blocks, getCurrentMinute(currentDay.date))
+      const timedIndex = timedBlocks.findIndex((item) => item.block.id === id)
+      if (timedIndex === -1) return currentDay
+
+      const current = timedBlocks[timedIndex]
+      const neighbor = direction === 'prev' ? timedBlocks[timedIndex - 1] : timedBlocks[timedIndex + 1]
+      if (!neighbor || !current.block.closed || !neighbor.block.closed) return currentDay
+
+      const earlier = direction === 'prev' ? neighbor.block : current.block
+      const later = direction === 'prev' ? current.block : neighbor.block
+      const mergedId = earlier.id
+
+      const mergedBlock: NotebookBlock = markBlockDirty({
+        ...earlier,
+        endMinute: later.endMinute,
+        text: [earlier.text, later.text].filter(Boolean).join('\n'),
+        summaryOverride: null,
+        ticketId: earlier.ticketId || later.ticketId,
+      })
+
+      return {
+        date: currentDay.date,
+        blocks: currentDay.blocks
+          .filter((block) => block.id !== current.block.id && block.id !== neighbor.block.id)
+          .concat(mergedBlock)
+          .sort((left, right) => {
+            const leftStart = left.startMinute ?? Number.MAX_SAFE_INTEGER
+            const rightStart = right.startMinute ?? Number.MAX_SAFE_INTEGER
+            if (leftStart !== rightStart) return leftStart - rightStart
+            return left.id.localeCompare(right.id)
+          })
+          .map((block) => (block.id === mergedId ? mergedBlock : block)),
+      }
+    })
+    setExpandedId(null)
+    setSummaryEditorId(null)
+    setSummaryDraft('')
+  }, [commitDay, getCurrentMinute])
+
+  const handlePinPointerDown = useCallback(
+    (id: string, edge: 'start' | 'end', event: ReactPointerEvent<HTMLDivElement>) => {
+      event.preventDefault()
+      event.stopPropagation()
+
+      const currentDay = dayRef.current
+      if (!currentDay) return
+      const nowMinute = getCurrentMinute(currentDay.date)
+      const timedBlocks = getTimedBlocks(currentDay.blocks, nowMinute)
+      const timedIndex = timedBlocks.findIndex((item) => item.block.id === id)
+      if (timedIndex === -1) return
+
+      const current = timedBlocks[timedIndex]
+      const previous = timedBlocks[timedIndex - 1]
+      const next = timedBlocks[timedIndex + 1]
+      const startValue = edge === 'start' ? current.startMinute : current.endMinute
+      const pointerStart = event.clientY
+
+      const onMove = (moveEvent: PointerEvent) => {
+        const deltaMinutes = Math.round((moveEvent.clientY - pointerStart) / PX_PER_MINUTE)
+        let nextValue = startValue + deltaMinutes
+
+        if (edge === 'start') {
+          const min = previous?.endMinute ?? 0
+          const max = current.endMinute - MIN_BLOCK_DURATION_MINUTES
+          nextValue = Math.min(Math.max(nextValue, min), max)
+          commitDay((dayState) => ({
+            date: dayState.date,
+            blocks: replaceBlockById(dayState.blocks, id, (block) => markBlockDirty({ ...block, startMinute: nextValue })),
+          }))
+        } else {
+          const min = current.startMinute + MIN_BLOCK_DURATION_MINUTES
+          const max = next?.startMinute ?? getCurrentMinute(currentDay.date)
+          nextValue = Math.min(Math.max(nextValue, min), max)
+          commitDay((dayState) => ({
+            date: dayState.date,
+            blocks: replaceBlockById(dayState.blocks, id, (block) => markBlockDirty({ ...block, endMinute: nextValue })),
+          }))
+        }
+      }
+
+      const onUp = () => {
+        window.removeEventListener('pointermove', onMove)
+        window.removeEventListener('pointerup', onUp)
+      }
+
+      window.addEventListener('pointermove', onMove)
+      window.addEventListener('pointerup', onUp)
+    },
+    [commitDay, getCurrentMinute, replaceBlockById],
+  )
 
   const openSummaryEditor = useCallback((id: string) => {
     const block = day?.blocks.find((candidate) => candidate.id === id)
@@ -628,7 +1026,7 @@ export function App() {
     setSummaryDraft('')
   }, [commitDay, summaryDraft, summaryEditorId])
 
-  const nowMinute = day ? nowMinuteForDate(day.date) : nowMinuteForDate(date)
+  const nowMinute = day ? getCurrentMinute(day.date) : getCurrentMinute(date)
   const validationIssues = useMemo(
     () => (day ? validateNotebookDay(persistedNotebookDay(day).blocks) : []),
     [day],
@@ -783,6 +1181,7 @@ export function App() {
                       onTextChange={handleTextChange}
                       onTicketChange={handleTicketChange}
                       onSelectSummaryEdit={openSummaryEditor}
+                      onDeleteBlock={handleDeleteBlock}
                       activeReopenableId={activeReopenableId}
                       getTextAreaRef={getTextAreaRef}
                     />
@@ -794,7 +1193,7 @@ export function App() {
                         Ruler
                       </Typography>
                       <Typography variant="body2" color="text.secondary">
-                        Phase 3 includes live mirroring and summary editing. Boundary drag, gap absorb, and merge land in Phase 4.
+                        Tap a closed block to reveal drag pins, gap absorb controls, and merge actions. Shared ticket IDs keep the same color and connect across the timeline.
                       </Typography>
                     </Stack>
                     <TimelinePanel
@@ -803,6 +1202,9 @@ export function App() {
                       expandedId={expandedId}
                       onToggleExpand={(id) => setExpandedId((current) => (current === id ? null : id))}
                       onSelectSummaryEdit={openSummaryEditor}
+                      onAbsorbGap={handleAbsorbGap}
+                      onMerge={handleMerge}
+                      onPinPointerDown={handlePinPointerDown}
                     />
                   </Box>
                 </Stack>

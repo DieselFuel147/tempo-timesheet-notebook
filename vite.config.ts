@@ -22,7 +22,7 @@ export default defineConfig({
     port: uiPort,
     strictPort: true,
     proxy: {
-      '/api': `http://localhost:${apiPort}`,
+      '/api': `http://127.0.0.1:${apiPort}`,
     },
   },
 })

@@ -52,11 +52,15 @@ export const api = {
   getDay: (date: string) =>
     isDesktopRuntime()
       ? invokeCommand(tauriCommandNames.getDay, { date }).then((day) => day as NotebookDay)
-      : Promise.reject(new Error('Notebook day load is not implemented for the HTTP backend yet')),
+      : fetch(`/api/day/${date}`).then((r) => parse<NotebookDay>(r)),
   saveDay: (input: NotebookDaySave) =>
     isDesktopRuntime()
       ? invokeCommand(tauriCommandNames.saveDay, { input }).then((day) => day as NotebookDay)
-      : Promise.reject(new Error('Notebook day save is not implemented for the HTTP backend yet')),
+      : fetch('/api/day', {
+          method: 'PUT',
+          headers: jsonHeaders,
+          body: JSON.stringify(input),
+        }).then((r) => parse<NotebookDay>(r)),
   saveNotes: (date: string, notes: string) =>
     isDesktopRuntime()
       ? invokeCommand(tauriCommandNames.saveDayNotes, { date, notes })
