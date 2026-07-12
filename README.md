@@ -14,7 +14,10 @@ enough that nothing has to be re-interpreted before it goes to Tempo.
 
 ## Setup
 
-Requires Node 22+.
+Requires:
+
+- Node 22+
+- Rust toolchain (`rustup`, `cargo`)
 
 ```bash
 npm install
@@ -28,8 +31,15 @@ You need two credentials (see `.env.example` for where to get them):
   ticket autocomplete and your accountId.
 - **Tempo** (API token) — to write the worklogs.
 
-> Auth is abstracted behind an `AuthProvider` interface (`server/auth/`), so the
-> Tempo token can be swapped for OAuth 2.0 later without touching the rest.
+Current migration state:
+
+- the Tauri desktop app is the primary runtime path
+- Jira and Tempo credentials are still loaded from `.env` as an interim parity step
+- old repo-local SQLite data is not migrated; the native app starts with a fresh DB in the Tauri app-data directory
+
+> Auth is still abstracted in the legacy Node path (`server/auth/`). The Rust/Tauri
+> path will move to desktop-native settings and secret storage later; for now it
+> still reads env vars for parity.
 
 ## Verify your credentials
 
@@ -40,34 +50,60 @@ npm run smoke -- REACT-1540   # also resolves a real ticket key -> numeric id
 
 ## Run
 
-```bash
-npm run dev     # Vite UI on :5173 (proxies /api to the Fastify backend on :3000)
-```
-
-## Tauri Wave 0 scaffold
-
-Requires the Rust toolchain in addition to Node 22+.
+### Preferred desktop workflow
 
 ```bash
 npm run tauri:dev
 ```
 
-Current Wave 0 behavior:
+This starts the React UI in a Tauri 2 shell and uses the native Rust core for:
 
-- launches the existing React/Vite UI inside a Tauri 2 shell
-- uses native `invoke` commands instead of the Fastify server when running in Tauri
-- keeps capabilities conservative (`core:default` only)
-- does not start a permanent Node sidecar
-- exposes only scaffold-level native commands today; day data and settings are in-memory placeholders until the Rust persistence work lands
+- local SQLite persistence
+- settings persistence
+- validation before push
+- Jira profile and ticket lookup
+- Tempo dry run and push
 
-For the legacy web/server workflow, continue using `npm run dev`.
+The desktop app does not use the internal Fastify server as its main runtime path.
+
+### Legacy web/server workflow
+
+```bash
+npm run dev     # Vite UI on :5173 (proxies /api to the Fastify backend on :3000)
+```
+
+Keep this only if you want to work on or compare against the old Node/Fastify path.
+
+## Test And Verify
+
+Frontend/shared checks:
+
+```bash
+npm run typecheck
+npm test
+npm run build
+```
+
+Native Rust/Tauri checks:
+
+```bash
+cd src-tauri
+cargo check
+cargo test
+```
+
+Desktop package build:
+
+```bash
+npm run tauri:build
+```
 
 ## Dry run (preview before sending)
 
-Click **"Dry run — preview payload"** (or `POST /api/day/<date>/push?dryRun=true`) to
-resolve ticket ids and build the exact requests that *would* be sent to Tempo —
-method, URL, headers, and body — shown in the UI and printed to the server
-console. Nothing is sent, and the auth token is redacted in the output.
+Click **"Dry run — preview payload"** to resolve ticket ids and build the exact
+requests that *would* be sent to Tempo. The preview includes method, URL,
+headers, and body. Nothing is sent, and the auth token is redacted in the
+output.
 
 ## Corporate networks (TLS interception)
 
@@ -77,10 +113,17 @@ bundle and ignores the system keychain. The npm scripts set `NODE_USE_SYSTEM_CA=
 so Node trusts the same corporate root CA your OS/curl already trust. If your CA
 isn't in the system store, point Node at it: `NODE_EXTRA_CA_CERTS=/path/to/ca.pem`.
 
+For the Rust/Tauri desktop runtime, `NODE_USE_SYSTEM_CA=1` does not apply. The
+native app uses the OS trust store directly, so a corporate TLS root CA must be
+installed in the macOS or Windows system trust store.
+
 ## Layout
 
 ```
-server/   Fastify backend — holds credentials, talks to Jira + Tempo
+src-tauri/ Rust native core and Tauri shell
+  src/core/   persistence, validation, push, Jira, Tempo, HTTP, settings
+  src/commands/ thin Tauri command handlers
+server/   Legacy Fastify backend kept only as a transitional/reference path
   auth/     AuthProvider abstraction (token now, OAuth-ready)
   jira/     resolve key -> id, /myself
   tempo/    create/read worklogs
