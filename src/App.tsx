@@ -22,6 +22,15 @@ import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import TodayIcon from '@mui/icons-material/Today';
 import { theme } from './theme'
 
+function cloneSettings(settings: AppSettings): AppSettings {
+  return {
+    validation: { ...settings.validation },
+    connections: {
+      jira: { ...settings.connections.jira },
+      tempo: { ...settings.connections.tempo },
+    },
+  }
+}
 
 export function App() {
   const [profile, setProfile] = useState<JiraProfile | null>(null)
@@ -46,7 +55,7 @@ export function App() {
 
   useEffect(() => {
     api.profile().then(setProfile).catch(() => setProfile(null))
-    api.getSettings().then(setSettings).catch(() => setSettings(defaultSettings))
+    api.getSettings().then(setSettings).catch(() => setSettings(cloneSettings(defaultSettings)))
   }, [])
 
   useEffect(() => {

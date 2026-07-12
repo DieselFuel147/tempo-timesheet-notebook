@@ -73,14 +73,17 @@ impl HttpClient {
 
         let total_attempts = retries.max(1);
         for attempt in 1..=total_attempts {
-            let result = self
+            let request_builder = self
                 .inner
                 .request(method.clone(), url.clone())
                 .headers(final_headers.clone())
-                .timeout(Duration::from_millis(timeout_ms))
-                .json(&body)
-                .send()
-                .await;
+                .timeout(Duration::from_millis(timeout_ms));
+            let request_builder = if let Some(body_value) = body.as_ref() {
+                request_builder.json(body_value)
+            } else {
+                request_builder
+            };
+            let result = request_builder.send().await;
 
             match result {
                 Ok(response) => {

@@ -4,6 +4,7 @@ import {
   defaultSettings,
   toValidationConfig,
   mergeSettings,
+  type SaveSettingsInput,
   thresholdSchema,
 } from './settings'
 
@@ -23,6 +24,20 @@ describe('defaultSettings', () => {
   it('does not carry the non-serializable ticketPattern', () => {
     expect('ticketPattern' in defaultSettings.validation).toBe(false)
     expect(JSON.parse(JSON.stringify(defaultSettings))).toEqual(defaultSettings)
+  })
+
+  it('includes editable connection defaults without secret values', () => {
+    expect(defaultSettings.connections).toEqual({
+      jira: {
+        baseUrl: '',
+        email: '',
+        apiTokenSaved: false,
+      },
+      tempo: {
+        baseUrl: 'https://api.tempo.io/4',
+        apiTokenSaved: false,
+      },
+    })
   })
 })
 
@@ -45,6 +60,7 @@ describe('mergeSettings', () => {
     expect(merged.validation.maxDayHours).toBe(10)
     expect(merged.validation.minDayHours).toBe(defaultSettings.validation.minDayHours)
     expect(merged.validation.adminTicket).toBe(defaultSettings.validation.adminTicket)
+    expect(merged.connections).toEqual(defaultSettings.connections)
   })
 
   it('returns a clean default when given null/garbage', () => {
@@ -56,6 +72,64 @@ describe('mergeSettings', () => {
   it('ignores unknown keys', () => {
     const merged = mergeSettings({ validation: { maxDayHours: 9 }, bogus: true } as unknown)
     expect('bogus' in merged).toBe(false)
+  })
+
+  it('merges connection settings and trims normalized values', () => {
+    const merged = mergeSettings({
+      connections: {
+        jira: {
+          baseUrl: 'https://example.atlassian.net///',
+          email: '  person@example.com  ',
+          apiTokenSaved: true,
+        },
+        tempo: {
+          baseUrl: 'https://api.tempo.io/4/',
+          apiTokenSaved: true,
+        },
+      },
+    })
+
+    expect(merged.connections).toEqual({
+      jira: {
+        baseUrl: 'https://example.atlassian.net',
+        email: 'person@example.com',
+        apiTokenSaved: true,
+      },
+      tempo: {
+        baseUrl: 'https://api.tempo.io/4',
+        apiTokenSaved: true,
+      },
+    })
+  })
+
+  it('merges raw settings over a supplied base so older responses do not wipe local metadata', () => {
+    const base = mergeSettings({
+      connections: {
+        jira: { apiTokenSaved: true },
+        tempo: { apiTokenSaved: true },
+      },
+    })
+
+    const merged = mergeSettings({ validation: { maxDayHours: 9 } }, base)
+
+    expect(merged.validation.maxDayHours).toBe(9)
+    expect(merged.connections.jira.apiTokenSaved).toBe(true)
+    expect(merged.connections.tempo.apiTokenSaved).toBe(true)
+  })
+})
+
+describe('SaveSettingsInput', () => {
+  it('supports optional secret updates without embedding secrets in Settings', () => {
+    const input: SaveSettingsInput = {
+      settings: defaultSettings,
+      secretUpdates: {
+        jiraApiToken: 'jira-token',
+        tempoApiToken: null,
+      },
+    }
+
+    expect(input.settings.connections.jira.apiTokenSaved).toBe(false)
+    expect(input.secretUpdates?.tempoApiToken).toBeNull()
   })
 })
 

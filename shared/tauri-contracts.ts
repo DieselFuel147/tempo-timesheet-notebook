@@ -1,4 +1,4 @@
-import type { Settings } from './settings'
+import type { SaveSettingsInput, Settings } from './settings'
 import type { Day, DryRunSummary, Entry, JiraProfile, PushSummary } from './types'
 
 // Wave 0 is the initial parity-oriented Tauri command set. Later waves can add
@@ -53,10 +53,6 @@ export interface PushDayInput {
 
 export interface DryRunDayInput {
   date: string
-}
-
-export interface SaveSettingsInput {
-  settings: Settings
 }
 
 export interface TicketSuggestion {

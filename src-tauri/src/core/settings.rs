@@ -1,7 +1,7 @@
 use serde_json::Value;
 
 use crate::core::validation::{default_ticket_pattern, ValidationConfig};
-use crate::state::Settings;
+use crate::state::{Settings, ThresholdSettings};
 
 pub fn default_settings() -> Settings {
     Settings::default()
@@ -12,35 +12,30 @@ pub fn merge_settings_value(raw: &Value) -> Settings {
     let Some(raw) = raw.as_object() else {
         return defaults;
     };
-    let Some(validation) = raw.get("validation").and_then(Value::as_object) else {
-        return defaults;
-    };
+    let mut merged = defaults.clone();
 
-    let mut merged = defaults.validation.clone();
-
-    if let Some(value) = validation.get("adminTicket").and_then(Value::as_str) {
-        merged.admin_ticket = value.to_string();
-    }
-    if let Some(value) = validation.get("workdayStartMin").and_then(Value::as_i64) {
-        merged.workday_start_min = value as i32;
-    }
-    if let Some(value) = validation.get("workdayEndMin").and_then(Value::as_i64) {
-        merged.workday_end_min = value as i32;
-    }
-    if let Some(value) = validation.get("minEntryMinutes").and_then(Value::as_i64) {
-        merged.min_entry_minutes = value as i32;
-    }
-    if let Some(value) = validation.get("maxEntryHours").and_then(Value::as_f64) {
-        merged.max_entry_hours = value;
-    }
-    if let Some(value) = validation.get("minDayHours").and_then(Value::as_f64) {
-        merged.min_day_hours = value;
-    }
-    if let Some(value) = validation.get("maxDayHours").and_then(Value::as_f64) {
-        merged.max_day_hours = value;
+    if let Some(validation) = raw.get("validation").and_then(Value::as_object) {
+        merged.validation = merge_validation(validation, &defaults.validation);
     }
 
-    Settings { validation: merged }
+    if let Some(connections) = raw.get("connections").and_then(Value::as_object) {
+        if let Some(jira) = connections.get("jira").and_then(Value::as_object) {
+            if let Some(value) = jira.get("baseUrl").and_then(Value::as_str) {
+                merged.connections.jira.base_url = trim_trailing_slashes(value);
+            }
+            if let Some(value) = jira.get("email").and_then(Value::as_str) {
+                merged.connections.jira.email = value.trim().to_string();
+            }
+        }
+
+        if let Some(tempo) = connections.get("tempo").and_then(Value::as_object) {
+            if let Some(value) = tempo.get("baseUrl").and_then(Value::as_str) {
+                merged.connections.tempo.base_url = trim_trailing_slashes(value);
+            }
+        }
+    }
+
+    merged
 }
 
 pub fn to_validation_config(settings: &Settings) -> ValidationConfig {
@@ -87,8 +82,53 @@ pub fn validate_settings(settings: &Settings) -> Result<(), String> {
     if validation.max_day_hours < validation.min_day_hours {
         return Err("Max day hours must be at least the min day hours.".into());
     }
+    if !settings.connections.jira.base_url.is_empty() && !is_valid_url(&settings.connections.jira.base_url) {
+        return Err("Jira base URL must be a valid absolute URL.".into());
+    }
+    if settings.connections.jira.email.contains(' ') {
+        return Err("Jira email must not contain spaces.".into());
+    }
+    if !settings.connections.tempo.base_url.is_empty() && !is_valid_url(&settings.connections.tempo.base_url) {
+        return Err("Tempo base URL must be a valid absolute URL.".into());
+    }
 
     Ok(())
+}
+
+fn merge_validation(validation: &serde_json::Map<String, Value>, defaults: &ThresholdSettings) -> ThresholdSettings {
+    let mut merged = defaults.clone();
+
+    if let Some(value) = validation.get("adminTicket").and_then(Value::as_str) {
+        merged.admin_ticket = value.to_string();
+    }
+    if let Some(value) = validation.get("workdayStartMin").and_then(Value::as_i64) {
+        merged.workday_start_min = value as i32;
+    }
+    if let Some(value) = validation.get("workdayEndMin").and_then(Value::as_i64) {
+        merged.workday_end_min = value as i32;
+    }
+    if let Some(value) = validation.get("minEntryMinutes").and_then(Value::as_i64) {
+        merged.min_entry_minutes = value as i32;
+    }
+    if let Some(value) = validation.get("maxEntryHours").and_then(Value::as_f64) {
+        merged.max_entry_hours = value;
+    }
+    if let Some(value) = validation.get("minDayHours").and_then(Value::as_f64) {
+        merged.min_day_hours = value;
+    }
+    if let Some(value) = validation.get("maxDayHours").and_then(Value::as_f64) {
+        merged.max_day_hours = value;
+    }
+
+    merged
+}
+
+fn trim_trailing_slashes(value: &str) -> String {
+    value.trim().trim_end_matches('/').to_string()
+}
+
+fn is_valid_url(value: &str) -> bool {
+    reqwest::Url::parse(value).is_ok()
 }
 
 #[cfg(test)]
@@ -105,12 +145,28 @@ mod tests {
                 "maxDayHours": 10,
                 "unknown": true
             },
+            "connections": {
+                "jira": {
+                    "baseUrl": "https://jira.example.com///",
+                    "email": " user@example.com ",
+                    "apiTokenSaved": true
+                },
+                "tempo": {
+                    "baseUrl": "https://api.tempo.io/4///",
+                    "apiTokenSaved": true
+                }
+            },
             "other": {}
         }));
 
         assert_eq!(merged.validation.max_day_hours, 10.0);
         assert_eq!(merged.validation.min_day_hours, default_settings().validation.min_day_hours);
         assert_eq!(merged.validation.admin_ticket, default_settings().validation.admin_ticket);
+        assert_eq!(merged.connections.jira.base_url, "https://jira.example.com");
+        assert_eq!(merged.connections.jira.email, "user@example.com");
+        assert!(!merged.connections.jira.api_token_saved);
+        assert_eq!(merged.connections.tempo.base_url, "https://api.tempo.io/4");
+        assert!(!merged.connections.tempo.api_token_saved);
     }
 
     #[test]
@@ -126,10 +182,30 @@ mod tests {
                 admin_ticket: "bad-ticket".into(),
                 ..ThresholdSettings::default()
             },
+            ..Settings::default()
         };
         assert_eq!(
             validate_settings(&invalid).unwrap_err(),
             "Admin ticket must be a valid key, e.g. ABC-123."
+        );
+    }
+
+    #[test]
+    fn validation_rejects_invalid_connection_urls() {
+        let invalid = Settings {
+            connections: crate::state::ConnectionSettings {
+                jira: crate::state::JiraConnectionSettings {
+                    base_url: String::from("not a url"),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            ..Settings::default()
+        };
+
+        assert_eq!(
+            validate_settings(&invalid).unwrap_err(),
+            "Jira base URL must be a valid absolute URL."
         );
     }
 }

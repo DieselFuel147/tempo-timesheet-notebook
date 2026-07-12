@@ -4,6 +4,7 @@ pub mod db;
 pub mod http;
 pub mod jira;
 pub mod push;
+pub mod secret_store;
 pub mod settings;
 pub mod tempo;
 pub mod validation;

@@ -1,6 +1,5 @@
-use std::env;
-
 use crate::error::AppError;
+use crate::state::Settings;
 
 #[derive(Clone, Debug)]
 pub struct JiraConfig {
@@ -21,21 +20,23 @@ pub struct IntegrationConfig {
     pub tempo: TempoConfig,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct IntegrationSecrets {
+    pub jira_api_token: String,
+    pub tempo_api_token: String,
+}
+
 impl IntegrationConfig {
-    // Interim parity path: until the Tauri settings and secret-storage work lands,
-    // native integrations still bootstrap from env vars instead of UI-managed config.
-    pub fn from_env() -> Self {
+    pub fn from_settings(settings: &Settings, secrets: IntegrationSecrets) -> Self {
         Self {
             jira: JiraConfig {
-                base_url: trim_trailing_slashes(env::var("JIRA_BASE_URL").unwrap_or_default()),
-                email: env::var("JIRA_EMAIL").unwrap_or_default(),
-                api_token: env::var("JIRA_API_TOKEN").unwrap_or_default(),
+                base_url: trim_trailing_slashes(settings.connections.jira.base_url.clone()),
+                email: settings.connections.jira.email.trim().to_string(),
+                api_token: secrets.jira_api_token,
             },
             tempo: TempoConfig {
-                base_url: trim_trailing_slashes(
-                    env::var("TEMPO_BASE_URL").unwrap_or_else(|_| String::from("https://api.tempo.io/4")),
-                ),
-                api_token: env::var("TEMPO_API_TOKEN").unwrap_or_default(),
+                base_url: trim_trailing_slashes(settings.connections.tempo.base_url.clone()),
+                api_token: secrets.tempo_api_token,
             },
         }
     }
@@ -43,23 +44,20 @@ impl IntegrationConfig {
     pub fn require_jira(&self) -> Result<&JiraConfig, AppError> {
         let mut missing = Vec::new();
         if self.jira.base_url.is_empty() {
-            missing.push("JIRA_BASE_URL");
+            missing.push("settings.connections.jira.baseUrl");
         }
         if self.jira.email.is_empty() {
-            missing.push("JIRA_EMAIL");
+            missing.push("settings.connections.jira.email");
         }
         if self.jira.api_token.is_empty() {
-            missing.push("JIRA_API_TOKEN");
+            missing.push("OS keychain: jiraApiToken");
         }
         if missing.is_empty() {
             Ok(&self.jira)
         } else {
             Err(AppError::not_configured(
                 "Jira integration is not configured yet",
-                missing
-                    .into_iter()
-                    .map(|name| format!("Missing env var: {name}"))
-                    .collect(),
+                missing.into_iter().map(|name| format!("Missing setting: {name}")).collect(),
             ))
         }
     }
@@ -67,20 +65,17 @@ impl IntegrationConfig {
     pub fn require_tempo(&self) -> Result<&TempoConfig, AppError> {
         let mut missing = Vec::new();
         if self.tempo.base_url.is_empty() {
-            missing.push("TEMPO_BASE_URL");
+            missing.push("settings.connections.tempo.baseUrl");
         }
         if self.tempo.api_token.is_empty() {
-            missing.push("TEMPO_API_TOKEN");
+            missing.push("OS keychain: tempoApiToken");
         }
         if missing.is_empty() {
             Ok(&self.tempo)
         } else {
             Err(AppError::not_configured(
                 "Tempo integration is not configured yet",
-                missing
-                    .into_iter()
-                    .map(|name| format!("Missing env var: {name}"))
-                    .collect(),
+                missing.into_iter().map(|name| format!("Missing setting: {name}")).collect(),
             ))
         }
     }
@@ -92,11 +87,12 @@ fn trim_trailing_slashes(value: String) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::IntegrationConfig;
+    use super::{IntegrationConfig, IntegrationSecrets};
+    use crate::state::Settings;
 
     #[test]
-    fn tempo_base_url_defaults_for_parity() {
-        let config = IntegrationConfig::from_env();
+    fn tempo_base_url_defaults_for_settings() {
+        let config = IntegrationConfig::from_settings(&Settings::default(), IntegrationSecrets::default());
         assert!(!config.tempo.base_url.is_empty());
     }
 }

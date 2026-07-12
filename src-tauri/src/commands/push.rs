@@ -15,14 +15,14 @@ use crate::state::{
 
 #[tauri::command]
 pub async fn push_day(date: String, state: State<'_, AppState>) -> Result<PushSummary, AppError> {
-    let clients = IntegrationClients::from_env()?;
+    let clients = IntegrationClients::from_state(state.inner())?;
     let repo = StateBackedPushRepo::new(state.inner());
     push::push_day(&date, &clients.jira, &clients.tempo, &repo).await
 }
 
 #[tauri::command]
 pub async fn dry_run_day(date: String, state: State<'_, AppState>) -> Result<DryRunSummary, AppError> {
-    let clients = IntegrationClients::from_env()?;
+    let clients = IntegrationClients::from_state(state.inner())?;
     let repo = StateBackedPushRepo::new(state.inner());
     push::dry_run_day(&date, &clients.jira, &clients.tempo, &repo).await
 }
@@ -33,8 +33,8 @@ struct IntegrationClients {
 }
 
 impl IntegrationClients {
-    fn from_env() -> Result<Self, AppError> {
-        let config = IntegrationConfig::from_env();
+    fn from_state(state: &AppState) -> Result<Self, AppError> {
+        let config: IntegrationConfig = state.load_integration_config()?;
         let jira = JiraClient::new(config.require_jira()?.clone(), HttpClient::new()?);
         let tempo = TempoClient::new(config.require_tempo()?.clone(), HttpClient::new()?);
         Ok(Self { jira, tempo })

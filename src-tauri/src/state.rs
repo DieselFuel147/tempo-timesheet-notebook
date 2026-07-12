@@ -4,7 +4,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::{AppHandle, Manager};
 
+use crate::core::config::{IntegrationConfig, IntegrationSecrets};
 use crate::core::db::Repository;
+use crate::core::secret_store::{SecretPresence, SecretStore};
 use crate::error::AppError;
 
 pub const TAURI_COMMAND_SET_VERSION: &str = "wave0";
@@ -111,8 +113,47 @@ impl Default for ThresholdSettings {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct JiraConnectionSettings {
+    pub base_url: String,
+    pub email: String,
+    pub api_token_saved: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TempoConnectionSettings {
+    pub base_url: String,
+    pub api_token_saved: bool,
+}
+
+impl Default for TempoConnectionSettings {
+    fn default() -> Self {
+        Self {
+            base_url: String::from("https://api.tempo.io/4"),
+            api_token_saved: false,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectionSettings {
+    pub jira: JiraConnectionSettings,
+    pub tempo: TempoConnectionSettings,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default, PartialEq)]
 pub struct Settings {
     pub validation: ThresholdSettings,
+    pub connections: ConnectionSettings,
+}
+
+#[derive(Clone, Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SecretUpdates {
+    pub jira_api_token: Option<String>,
+    pub tempo_api_token: Option<String>,
 }
 
 #[derive(Clone, Serialize)]
@@ -173,6 +214,7 @@ pub struct DryRunSummary {
 
 pub struct AppState {
     pub repo: Mutex<Repository>,
+    secrets: SecretStore,
 }
 
 impl AppState {
@@ -191,7 +233,61 @@ impl AppState {
         let repo = Repository::open(app_data_dir.join("tempo.db"))?;
         Ok(Self {
             repo: Mutex::new(repo),
+            secrets: SecretStore::new(),
         })
+    }
+
+    pub fn get_settings(&self) -> Result<Settings, AppError> {
+        let settings = self.load_stored_settings()?;
+        self.attach_secret_presence(settings)
+    }
+
+    pub fn save_settings(
+        &self,
+        settings: &Settings,
+        secret_updates: Option<SecretUpdates>,
+    ) -> Result<Settings, AppError> {
+        let mut repo = self
+            .repo
+            .lock()
+            .map_err(|_| AppError::internal("Failed to lock repository"))?;
+
+        let saved = repo.save_settings(settings)?;
+        drop(repo);
+
+        if let Some(secret_updates) = secret_updates {
+            self.secrets.apply_updates(&secret_updates)?;
+        }
+
+        self.attach_secret_presence(saved)
+    }
+
+    pub fn load_integration_config(&self) -> Result<IntegrationConfig, AppError> {
+        let settings = self.load_stored_settings()?;
+        let secrets = IntegrationSecrets {
+            jira_api_token: self.secrets.get_jira_api_token()?,
+            tempo_api_token: self.secrets.get_tempo_api_token()?,
+        };
+        Ok(IntegrationConfig::from_settings(&settings, secrets))
+    }
+
+    fn load_stored_settings(&self) -> Result<Settings, AppError> {
+        let repo = self
+            .repo
+            .lock()
+            .map_err(|_| AppError::internal("Failed to lock repository"))?;
+
+        repo.get_settings()
+    }
+
+    fn attach_secret_presence(&self, mut settings: Settings) -> Result<Settings, AppError> {
+        let SecretPresence {
+            jira_api_token_saved,
+            tempo_api_token_saved,
+        } = self.secrets.get_presence()?;
+        settings.connections.jira.api_token_saved = jira_api_token_saved;
+        settings.connections.tempo.api_token_saved = tempo_api_token_saved;
+        Ok(settings)
     }
 }
 

@@ -5,7 +5,7 @@ import type { JiraClient } from './jira/client'
 import type { TempoClient } from './tempo/client'
 import * as repo from './db/repo'
 import { pushDay } from './push'
-import { thresholdSchema } from '../shared/settings'
+import { mergeSettings, thresholdSchema } from '../shared/settings'
 
 export interface RouteDeps {
   jira: JiraClient
@@ -63,17 +63,28 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
 
   app.get('/api/dates', async () => repo.listDates())
 
-  // App settings (validation thresholds today; more sections later).
+  // App settings. The legacy Node path still sources auth from env, so it stores
+  // connection metadata and validation thresholds but ignores secret updates.
   app.get('/api/settings', async () => repo.getSettings())
 
   app.put('/api/settings', async (req, reply) => {
-    const body = z.object({ validation: z.unknown() }).parse(req.body)
-    const parsed = thresholdSchema.safeParse(body.validation)
+    const body = z
+      .object({
+        settings: z.unknown().optional(),
+        validation: z.unknown().optional(),
+      })
+      .parse(req.body)
+    const candidate = body.settings ?? (body.validation ? { validation: body.validation } : undefined)
+    const merged = mergeSettings(candidate)
+    const parsed = thresholdSchema.safeParse(merged.validation)
     if (!parsed.success) {
       reply.code(400)
       return { error: parsed.error.issues.map((i) => i.message).join('; ') }
     }
-    return repo.saveSettings({ validation: parsed.data })
+    return repo.saveSettings({
+      ...merged,
+      validation: parsed.data,
+    })
   })
 
   // Push a whole day to Tempo. Idempotent — already-synced entries are skipped.

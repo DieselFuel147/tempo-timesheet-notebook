@@ -1,4 +1,4 @@
-import type { Settings, ThresholdSettings } from '../shared/settings'
+import { defaultSettings, mergeSettings, type SaveSettingsInput, type Settings } from '../shared/settings'
 import { tauriCommandNames, type TicketSuggestion, type UpsertEntryInput } from '../shared/tauri-contracts'
 import type { Day, Entry, JiraProfile, PushSummary, DryRunSummary } from '../shared/types'
 import { invokeCommand, isDesktopRuntime } from './api/desktopApi'
@@ -15,6 +15,33 @@ async function parse<T>(res: Response): Promise<T> {
 export type EntrySave = UpsertEntryInput
 
 const jsonHeaders = { 'Content-Type': 'application/json' }
+
+function normalizeSettings(settings: unknown, base: Settings = defaultSettings): Settings {
+  return mergeSettings(settings, base)
+}
+
+function hasConnectionSettings(settings: unknown): settings is { connections: unknown } {
+  return !!settings && typeof settings === 'object' && 'connections' in settings
+}
+
+function normalizeSavedSettings(raw: unknown, requested: Settings, previous: Settings): Settings {
+  if (hasConnectionSettings(raw)) return normalizeSettings(raw)
+
+  const normalized = normalizeSettings(raw, requested)
+  return {
+    ...normalized,
+    connections: {
+      jira: {
+        ...requested.connections.jira,
+        apiTokenSaved: previous.connections.jira.apiTokenSaved,
+      },
+      tempo: {
+        ...requested.connections.tempo,
+        apiTokenSaved: previous.connections.tempo.apiTokenSaved,
+      },
+    },
+  }
+}
 
 export const api = {
   profile: () =>
@@ -61,16 +88,17 @@ export const api = {
       : fetch(`/api/day/${date}/push?dryRun=true`, { method: 'POST' }).then((r) => parse<DryRunSummary>(r)),
   getSettings: () =>
     isDesktopRuntime()
-      ? invokeCommand(tauriCommandNames.getSettings)
-      : fetch('/api/settings').then((r) => parse<Settings>(r)),
-  saveSettings: (validation: ThresholdSettings) =>
+      ? invokeCommand(tauriCommandNames.getSettings).then((settings) => normalizeSettings(settings))
+      : fetch('/api/settings').then((r) => parse<Settings>(r)).then((settings) => normalizeSettings(settings)),
+  saveSettings: (input: SaveSettingsInput, previousSettings: Settings) =>
     isDesktopRuntime()
       ? invokeCommand(tauriCommandNames.saveSettings, {
-          settings: { validation },
-        })
+          settings: input.settings,
+          secretUpdates: input.secretUpdates,
+        }).then((settings) => normalizeSavedSettings(settings, input.settings, previousSettings))
       : fetch('/api/settings', {
           method: 'PUT',
           headers: jsonHeaders,
-          body: JSON.stringify({ validation }),
-        }).then((r) => parse<Settings>(r)),
+          body: JSON.stringify(input),
+        }).then((r) => parse<Settings>(r)).then((settings) => normalizeSavedSettings(settings, input.settings, previousSettings)),
 }

@@ -299,8 +299,12 @@ impl Repository {
     pub fn save_settings(&mut self, settings: &Settings) -> Result<Settings, AppError> {
         validate_settings(settings).map_err(|message| AppError::new(ErrorCode::ValidationError, message))?;
 
+        let mut sanitized = settings.clone();
+        sanitized.connections.jira.api_token_saved = false;
+        sanitized.connections.tempo.api_token_saved = false;
+
         let merged = merge_settings_value(
-            &serde_json::to_value(settings)
+            &serde_json::to_value(&sanitized)
                 .map_err(|error| AppError::internal(format!("Failed to serialize settings: {error}")))?,
         );
         let serialized = serde_json::to_string(&merged)
@@ -433,9 +437,37 @@ mod tests {
                 workday_start_min: 480,
                 ..ThresholdSettings::default()
             },
+            ..Settings::default()
         });
 
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().to_string(), "End of the working day must be after the start.");
+    }
+
+    #[test]
+    fn save_settings_persists_connection_fields_without_secret_presence_flags() {
+        let mut repo = Repository::in_memory().expect("repo");
+
+        let saved = repo
+            .save_settings(&Settings {
+                connections: crate::state::ConnectionSettings {
+                    jira: crate::state::JiraConnectionSettings {
+                        base_url: String::from("https://jira.example.com/"),
+                        email: String::from("user@example.com"),
+                        api_token_saved: true,
+                    },
+                    tempo: crate::state::TempoConnectionSettings {
+                        base_url: String::from("https://api.tempo.io/4/"),
+                        api_token_saved: true,
+                    },
+                },
+                ..Settings::default()
+            })
+            .expect("save settings");
+
+        assert_eq!(saved.connections.jira.base_url, "https://jira.example.com");
+        assert_eq!(saved.connections.tempo.base_url, "https://api.tempo.io/4");
+        assert!(!saved.connections.jira.api_token_saved);
+        assert!(!saved.connections.tempo.api_token_saved);
     }
 }

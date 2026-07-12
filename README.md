@@ -34,7 +34,8 @@ You need two credentials (see `.env.example` for where to get them):
 Current migration state:
 
 - the Tauri desktop app is the primary runtime path
-- Jira and Tempo credentials are still loaded from `.env` as an interim parity step
+- the shared/frontend settings model and UI now include Jira/Tempo connection fields plus saved-token metadata
+- the legacy Node/Fastify path still reads actual Jira/Tempo secrets from `.env`; it ignores in-app secret updates
 - old repo-local SQLite data is not migrated; the native app starts with a fresh DB in the Tauri app-data directory
 
 > Auth is still abstracted in the legacy Node path (`server/auth/`). The Rust/Tauri
