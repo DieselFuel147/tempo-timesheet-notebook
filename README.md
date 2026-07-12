@@ -98,6 +98,9 @@ Desktop package build:
 npm run tauri:build
 ```
 
+Packaging, signing, and enterprise rollout constraints are documented in
+[`PACKAGING.md`](./PACKAGING.md).
+
 ## Dry run (preview before sending)
 
 Click **"Dry run — preview payload"** to resolve ticket ids and build the exact

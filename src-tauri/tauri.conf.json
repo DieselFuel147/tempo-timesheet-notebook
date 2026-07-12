@@ -29,11 +29,32 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
-    "icon": [],
+    "targets": [
+      "app",
+      "dmg",
+      "nsis"
+    ],
+    "category": "Productivity",
+    "publisher": "Diesel Mitchell",
+    "shortDescription": "Local-first desktop timesheet logging for Jira and Tempo.",
+    "longDescription": "Local-first desktop timesheet logging with native SQLite persistence, Jira lookup, Tempo dry run, and Tempo push orchestration.",
+    "icon": [
+      "icons/icon.png"
+    ],
     "createUpdaterArtifacts": false,
     "macOS": {
+      "hardenedRuntime": true,
       "minimumSystemVersion": "13.0"
+    },
+    "windows": {
+      "allowDowngrades": false,
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      },
+      "nsis": {
+        "installMode": "currentUser"
+      }
     }
   }
 }
