@@ -44,6 +44,24 @@ npm run smoke -- REACT-1540   # also resolves a real ticket key -> numeric id
 npm run dev     # Vite UI on :5173 (proxies /api to the Fastify backend on :3000)
 ```
 
+## Tauri Wave 0 scaffold
+
+Requires the Rust toolchain in addition to Node 22+.
+
+```bash
+npm run tauri:dev
+```
+
+Current Wave 0 behavior:
+
+- launches the existing React/Vite UI inside a Tauri 2 shell
+- uses native `invoke` commands instead of the Fastify server when running in Tauri
+- keeps capabilities conservative (`core:default` only)
+- does not start a permanent Node sidecar
+- exposes only scaffold-level native commands today; day data and settings are in-memory placeholders until the Rust persistence work lands
+
+For the legacy web/server workflow, continue using `npm run dev`.
+
 ## Dry run (preview before sending)
 
 Click **"Dry run — preview payload"** (or `POST /api/day/<date>/push?dryRun=true`) to

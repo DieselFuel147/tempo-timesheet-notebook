@@ -6,10 +6,19 @@ import react from '@vitejs/plugin-react'
 // only ever talks to one origin.
 const uiPort = Number(process.env.PORT) || 5173
 const apiPort = Number(process.env.API_PORT) || 3000
+const tauriHost = process.env.TAURI_DEV_HOST
 
 export default defineConfig({
   plugins: [react()],
   server: {
+    host: tauriHost || 'localhost',
+    hmr: tauriHost
+      ? {
+          protocol: 'ws',
+          host: tauriHost,
+          port: uiPort,
+        }
+      : undefined,
     port: uiPort,
     strictPort: true,
     proxy: {
