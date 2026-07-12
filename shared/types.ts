@@ -36,6 +36,31 @@ export interface Day {
   entries: Entry[]
 }
 
+/**
+ * A notebook-first work block. Time is captured as minutes from midnight so the
+ * UI can infer and adjust boundaries directly without round-tripping through
+ * HH:mm strings on every edit.
+ */
+export interface NotebookBlock {
+  id: string
+  date: string // YYYY-MM-DD
+  startMinute: number | null
+  endMinute: number | null
+  text: string
+  closed: boolean
+  ticketId: string
+  summaryOverride?: string | null
+  /** Set once the block has been pushed to Tempo — drives idempotent re-push. */
+  tempoWorklogId?: number | null
+  syncedAt?: string | null
+}
+
+/** A single notebook day: all persisted blocks in chronological UI order. */
+export interface NotebookDay {
+  date: string // YYYY-MM-DD
+  blocks: NotebookBlock[]
+}
+
 /** A fully-resolved worklog ready to POST to Tempo's /worklogs endpoint. */
 export interface WorklogInput {
   issueId: number

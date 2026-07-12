@@ -1,11 +1,14 @@
 import { describe, it, expect } from 'vitest'
-import type { Entry } from './types'
+import type { Entry, NotebookBlock } from './types'
 import {
   defaultConfig,
   parseTime,
   entryDurationMinutes,
+  notebookBlockDurationMinutes,
   validateEntry,
   validateDay,
+  validateNotebookBlock,
+  validateNotebookDay,
   summarizeIssues,
 } from './validation'
 
@@ -18,6 +21,20 @@ function entry(over: Partial<Entry>): Entry {
     ticketKey: 'REACT-1540',
     summary: 'Work',
     ...over,
+  }
+}
+
+function block(overrides: Partial<NotebookBlock> = {}): NotebookBlock {
+  return {
+    id: overrides.id ?? 'b1',
+    date: '2025-05-09',
+    startMinute: 9 * 60,
+    endMinute: 9 * 60 + 45,
+    text: 'Worked on notebook UI',
+    closed: true,
+    ticketId: 'REACT-1540',
+    summaryOverride: null,
+    ...overrides,
   }
 }
 
@@ -45,6 +62,16 @@ describe('entryDurationMinutes', () => {
   })
   it('is null on bad input', () => {
     expect(entryDurationMinutes(entry({ end: 'x' }))).toBeNull()
+  })
+})
+
+describe('notebookBlockDurationMinutes', () => {
+  it('computes duration', () => {
+    expect(notebookBlockDurationMinutes(block())).toBe(45)
+  })
+
+  it('is null on incomplete timing', () => {
+    expect(notebookBlockDurationMinutes(block({ endMinute: null }))).toBeNull()
   })
 })
 
@@ -132,5 +159,67 @@ describe('validateDay', () => {
     ])
     expect(issues.filter((i) => i.entryId === 'a').map((i) => i.code)).toContain('INVALID_TICKET')
     expect(issues.filter((i) => i.entryId === 'b').map((i) => i.code)).toContain('BAD_RANGE')
+  })
+})
+
+describe('validateNotebookBlock', () => {
+  it('passes a clean closed block with no issues', () => {
+    expect(validateNotebookBlock(block())).toEqual([])
+  })
+
+  it('accepts the default admin ticket', () => {
+    expect(validateNotebookBlock(block({ ticketId: defaultConfig.adminTicket }))).toEqual([])
+  })
+
+  it('flags an invalid ticket as an error', () => {
+    const issues = validateNotebookBlock(block({ ticketId: 'Team standup' }))
+    expect(issues.some((i) => i.code === 'INVALID_TICKET' && i.level === 'error')).toBe(true)
+  })
+
+  it('errors when a closed block is missing timing', () => {
+    expect(validateNotebookBlock(block({ startMinute: null })).map((i) => i.code)).toContain('INCOMPLETE_BLOCK')
+  })
+
+  it('errors when end is before or equal to start', () => {
+    expect(validateNotebookBlock(block({ startMinute: 600, endMinute: 540 })).map((i) => i.code)).toContain('BAD_RANGE')
+    expect(validateNotebookBlock(block({ startMinute: 600, endMinute: 600 })).map((i) => i.code)).toContain('BAD_RANGE')
+  })
+
+  it('errors when an open block has an end time', () => {
+    expect(validateNotebookBlock(block({ closed: false, endMinute: 600 })).map((i) => i.code)).toContain('OPEN_BLOCK_HAS_END')
+  })
+
+  it('warns on too-short blocks and missing text', () => {
+    const issues = validateNotebookBlock(block({ endMinute: 9 * 60 + 5, text: '   ' }))
+    expect(issues.map((i) => i.code)).toContain('TOO_SHORT')
+    expect(issues.map((i) => i.code)).toContain('NO_TEXT')
+  })
+})
+
+describe('validateNotebookDay', () => {
+  it('detects overlapping blocks as an error', () => {
+    const issues = validateNotebookDay([
+      block({ id: 'a', startMinute: 540, endMinute: 630 }),
+      block({ id: 'b', startMinute: 600, endMinute: 660 }),
+    ])
+    expect(issues.some((i) => i.code === 'OVERLAP' && i.level === 'error')).toBe(true)
+  })
+
+  it('allows back-to-back blocks', () => {
+    const issues = validateNotebookDay([
+      block({ id: 'a', startMinute: 540, endMinute: 600 }),
+      block({ id: 'b', startMinute: 600, endMinute: 660 }),
+    ])
+    expect(issues.some((i) => i.code === 'OVERLAP')).toBe(false)
+  })
+
+  it('warns when the daily total is too low', () => {
+    const issues = validateNotebookDay([block({ startMinute: 540, endMinute: 600 })])
+    expect(issues.map((i) => i.code)).toContain('DAY_LOW')
+  })
+
+  it('warns when the daily total is too high', () => {
+    const issues = validateNotebookDay([block({ startMinute: 360, endMinute: 1200 })])
+    expect(codes(issues)).toContain('DAY_HIGH')
   })
 })

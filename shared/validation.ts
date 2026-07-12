@@ -1,4 +1,5 @@
-import type { Entry } from './types'
+import type { Entry, NotebookBlock } from './types'
+import { notebookBlockSummary } from './notebook'
 
 // Pure validation, shared by the browser (live feedback as you type) and the
 // server (the gate that runs again before anything is pushed to Tempo — the
@@ -147,4 +148,110 @@ export function summarizeIssues(issues: ValidationIssue[]) {
   const errors = issues.filter((i) => i.level === 'error')
   const warnings = issues.filter((i) => i.level === 'warning')
   return { errors, warnings, hasErrors: errors.length > 0 }
+}
+
+/** Notebook-block duration in minutes, or null if the block is not fully timed. */
+export function notebookBlockDurationMinutes(block: NotebookBlock): number | null {
+  if (block.startMinute === null || block.endMinute === null) return null
+  return block.endMinute - block.startMinute
+}
+
+/** Validate a single notebook block in isolation. */
+export function validateNotebookBlock(
+  block: NotebookBlock,
+  config: ValidationConfig = defaultConfig,
+): ValidationIssue[] {
+  const issues: ValidationIssue[] = []
+  const add = (level: IssueLevel, code: string, message: string) =>
+    issues.push({ level, code, message, entryId: block.id })
+
+  const key = block.ticketId.trim()
+  if (!key) {
+    add('error', 'INVALID_TICKET', 'Ticket is required (e.g. ABC-123).')
+  } else if (!config.ticketPattern.test(key)) {
+    add('error', 'INVALID_TICKET', `"${block.ticketId}" is not a valid ticket key (expected e.g. ABC-123).`)
+  }
+
+  if (block.startMinute === null && block.endMinute !== null) {
+    add('error', 'INVALID_START', 'Block end time cannot exist without a start time.')
+  }
+
+  if (block.startMinute !== null) {
+    if (block.startMinute < 0 || block.startMinute > 1439) {
+      add('error', 'INVALID_START', `Start minute ${block.startMinute} is out of range.`)
+    }
+  }
+
+  if (block.endMinute !== null) {
+    if (block.endMinute < 0 || block.endMinute > 1440) {
+      add('error', 'INVALID_END', `End minute ${block.endMinute} is out of range.`)
+    }
+  }
+
+  const duration = notebookBlockDurationMinutes(block)
+  if (block.closed) {
+    if (block.startMinute === null || block.endMinute === null) {
+      add('error', 'INCOMPLETE_BLOCK', 'Closed blocks must have both start and end times.')
+    } else if (duration !== null) {
+      if (duration <= 0) {
+        add('error', 'BAD_RANGE', `End (${block.endMinute}) must be after start (${block.startMinute}).`)
+      } else {
+        if (duration < config.minEntryMinutes) {
+          add('warning', 'TOO_SHORT', `Only ${duration} min — shorter than ${config.minEntryMinutes} min.`)
+        }
+        if (duration > config.maxEntryHours * 60) {
+          add('warning', 'TOO_LONG', `${(duration / 60).toFixed(2)}h in one block — over ${config.maxEntryHours}h.`)
+        }
+      }
+    }
+  } else if (block.endMinute !== null) {
+    add('error', 'OPEN_BLOCK_HAS_END', 'Open blocks cannot have an end time.')
+  }
+
+  if (block.startMinute !== null && block.startMinute < config.workdayStartMin) {
+    add('warning', 'EARLY', `Starts before normal hours (${fmtMin(config.workdayStartMin)}).`)
+  }
+  if (block.endMinute !== null && block.endMinute > config.workdayEndMin) {
+    add('warning', 'LATE', `Ends after normal hours (${fmtMin(config.workdayEndMin)}).`)
+  }
+
+  if (!block.text.trim()) add('warning', 'NO_TEXT', 'No note text — add detail for what you did.')
+  if (!notebookBlockSummary(block).trim()) add('warning', 'NO_SUMMARY', 'No summary — add a short note of what you did.')
+
+  return issues
+}
+
+/** Validate a whole notebook day: every persisted block, overlaps, and total. */
+export function validateNotebookDay(
+  blocks: NotebookBlock[],
+  config: ValidationConfig = defaultConfig,
+): ValidationIssue[] {
+  const issues: ValidationIssue[] = []
+  for (const block of blocks) issues.push(...validateNotebookBlock(block, config))
+
+  const closedTimed = blocks
+    .map((block) => ({ block, s: block.startMinute, e: block.endMinute }))
+    .filter((x): x is { block: NotebookBlock; s: number; e: number } => x.s !== null && x.e !== null && x.e > x.s)
+    .sort((a, b) => a.s - b.s)
+
+  for (let i = 0; i < closedTimed.length - 1; i++) {
+    if (closedTimed[i].e > closedTimed[i + 1].s) {
+      issues.push({
+        level: 'error',
+        code: 'OVERLAP',
+        message: `Overlaps: ${closedTimed[i].s}-${closedTimed[i].e} and ${closedTimed[i + 1].s}-${closedTimed[i + 1].e}.`,
+        entryId: closedTimed[i + 1].block.id,
+      })
+    }
+  }
+
+  const totalHours = closedTimed.reduce((sum, x) => sum + (x.e - x.s), 0) / 60
+  if (closedTimed.length > 0 && totalHours < config.minDayHours) {
+    issues.push({ level: 'warning', code: 'DAY_LOW', message: `Only ${totalHours.toFixed(2)}h logged (under ${config.minDayHours}h).` })
+  }
+  if (totalHours > config.maxDayHours) {
+    issues.push({ level: 'warning', code: 'DAY_HIGH', message: `${totalHours.toFixed(2)}h logged (over ${config.maxDayHours}h).` })
+  }
+
+  return issues
 }
