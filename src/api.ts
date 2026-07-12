@@ -1,15 +1,7 @@
 import type { Settings, ThresholdSettings } from '../shared/settings'
-import {
-  tauriCommandNames,
-  type NativeCommandError,
-  type SaveSettingsInput,
-  type TauriCommandContracts,
-  type TicketSuggestion,
-  type UpsertEntryInput,
-} from '../shared/tauri-contracts'
+import { tauriCommandNames, type TicketSuggestion, type UpsertEntryInput } from '../shared/tauri-contracts'
 import type { Day, Entry, JiraProfile, PushSummary, DryRunSummary } from '../shared/types'
-
-type InvokeArgs = Record<string, unknown> | undefined
+import { invokeCommand, isDesktopRuntime } from './api/desktopApi'
 
 async function parse<T>(res: Response): Promise<T> {
   const text = await res.text()
@@ -24,87 +16,58 @@ export type EntrySave = UpsertEntryInput
 
 const jsonHeaders = { 'Content-Type': 'application/json' }
 
-function isTauriRuntime(): boolean {
-  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
-}
-
-function toError(error: unknown): Error {
-  if (error && typeof error === 'object' && 'message' in error) {
-    const nativeError = error as NativeCommandError
-    return new Error(nativeError.message)
-  }
-  if (error instanceof Error) return error
-  if (typeof error === 'string') return new Error(error)
-  return new Error('Unknown error')
-}
-
-async function invokeCommand<TName extends keyof TauriCommandContracts>(
-  command: TName,
-  args?: InvokeArgs,
-): Promise<TauriCommandContracts[TName]['output']> {
-  const { invoke } = await import('@tauri-apps/api/core')
-
-  try {
-    return await invoke<TauriCommandContracts[TName]['output']>(command, args)
-  } catch (error) {
-    throw toError(error)
-  }
-}
-
 export const api = {
   profile: () =>
-    isTauriRuntime()
+    isDesktopRuntime()
       ? invokeCommand(tauriCommandNames.getProfile)
       : fetch('/api/profile').then((r) => parse<JiraProfile>(r)),
   getDay: (date: string) =>
-    isTauriRuntime()
+    isDesktopRuntime()
       ? invokeCommand(tauriCommandNames.getDay, { date })
       : fetch(`/api/day/${date}`).then((r) => parse<Day>(r)),
   saveNotes: (date: string, notes: string) =>
-    isTauriRuntime()
+    isDesktopRuntime()
       ? invokeCommand(tauriCommandNames.saveDayNotes, { date, notes })
       : fetch(`/api/day/${date}/notes`, {
           method: 'PUT',
           headers: jsonHeaders,
           body: JSON.stringify({ notes }),
         }).then((r) => parse<{ ok: true }>(r)),
-  saveEntry: (e: EntrySave) =>
-    isTauriRuntime()
-      ? invokeCommand(tauriCommandNames.upsertEntry, { input: e })
-      : fetch('/api/entry', { method: 'POST', headers: jsonHeaders, body: JSON.stringify(e) }).then(
-          (r) => parse<Entry>(r),
+  saveEntry: (input: EntrySave) =>
+    isDesktopRuntime()
+      ? invokeCommand(tauriCommandNames.upsertEntry, { input })
+      : fetch('/api/entry', { method: 'POST', headers: jsonHeaders, body: JSON.stringify(input) }).then((r) =>
+          parse<Entry>(r),
         ),
   deleteEntry: (id: string) =>
-    isTauriRuntime()
+    isDesktopRuntime()
       ? invokeCommand(tauriCommandNames.deleteEntry, { id })
       : fetch(`/api/entry/${id}`, { method: 'DELETE' }).then((r) => parse<{ ok: true }>(r)),
-  tickets: (q: string) =>
-    isTauriRuntime()
-      ? invokeCommand(tauriCommandNames.searchTickets, { query: q })
-      : fetch(`/api/tickets?q=${encodeURIComponent(q)}`).then((r) => parse<TicketSuggestion[]>(r)),
+  tickets: (query: string) =>
+    isDesktopRuntime()
+      ? invokeCommand(tauriCommandNames.searchTickets, { query })
+      : fetch(`/api/tickets?q=${encodeURIComponent(query)}`).then((r) => parse<TicketSuggestion[]>(r)),
   dates: () =>
-    isTauriRuntime()
+    isDesktopRuntime()
       ? invokeCommand(tauriCommandNames.listDates)
       : fetch('/api/dates').then((r) => parse<string[]>(r)),
   pushDay: (date: string) =>
-    isTauriRuntime()
+    isDesktopRuntime()
       ? invokeCommand(tauriCommandNames.pushDay, { date })
       : fetch(`/api/day/${date}/push`, { method: 'POST' }).then((r) => parse<PushSummary>(r)),
   dryRunDay: (date: string) =>
-    isTauriRuntime()
+    isDesktopRuntime()
       ? invokeCommand(tauriCommandNames.dryRunDay, { date })
-      : fetch(`/api/day/${date}/push?dryRun=true`, { method: 'POST' }).then((r) =>
-          parse<DryRunSummary>(r),
-        ),
+      : fetch(`/api/day/${date}/push?dryRun=true`, { method: 'POST' }).then((r) => parse<DryRunSummary>(r)),
   getSettings: () =>
-    isTauriRuntime()
+    isDesktopRuntime()
       ? invokeCommand(tauriCommandNames.getSettings)
       : fetch('/api/settings').then((r) => parse<Settings>(r)),
   saveSettings: (validation: ThresholdSettings) =>
-    isTauriRuntime()
+    isDesktopRuntime()
       ? invokeCommand(tauriCommandNames.saveSettings, {
           settings: { validation },
-        } satisfies SaveSettingsInput)
+        })
       : fetch('/api/settings', {
           method: 'PUT',
           headers: jsonHeaders,

@@ -77,6 +77,7 @@ export function EntryRow({ entry, issues, adminTicket, onPatch, onDelete }: Prop
         <TicketField
           value={entry.ticketKey}
           invalid={ticketInvalid}
+          adminTicket={adminTicket}
           onChange={(ticketKey) => onPatch({ ticketKey })}
           onAdmin={() => onPatch({ ticketKey: adminTicket })}
         />

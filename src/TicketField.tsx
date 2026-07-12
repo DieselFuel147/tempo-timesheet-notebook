@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react'
 import PsychologyIcon from '@mui/icons-material/Psychology'
 import { api } from './api'
-import { defaultConfig } from '../shared/validation'
 import { Autocomplete, Box, TextField } from '@mui/material'
 import { theme } from './theme'
 
 interface Props {
   value: string
   invalid: boolean
+  adminTicket: string
   onChange: (key: string) => void
   onAdmin: () => void
 }
@@ -21,7 +21,7 @@ interface TicketOption {
 // Ticket input with debounced Jira autocomplete. Turns red when the value is
 // non-empty but not a valid key. Autocomplete is best-effort: if Jira isn't
 // reachable, the field still works as a plain text input.
-export function TicketField({ value, invalid, onChange, onAdmin }: Props) {
+export function TicketField({ value, invalid, adminTicket, onChange, onAdmin }: Props) {
   const [loading, setLoading] = useState(false)
   const [options, setOptions] = useState<TicketOption[]>([])
 
@@ -39,7 +39,7 @@ export function TicketField({ value, invalid, onChange, onAdmin }: Props) {
     return () => clearTimeout(handle)
   }, [value])
 
-  const adminTitle = `Log as general admin (${defaultConfig.adminTicket})`
+  const adminTitle = `Log as general admin (${adminTicket})`
 
   return (
     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
