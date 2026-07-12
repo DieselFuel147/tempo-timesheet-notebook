@@ -1,7 +1,11 @@
-use std::collections::HashMap;
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use tauri::{AppHandle, Manager};
+
+use crate::core::db::Repository;
+use crate::error::AppError;
 
 pub const TAURI_COMMAND_SET_VERSION: &str = "wave0";
 
@@ -28,6 +32,13 @@ pub struct JiraProfile {
     pub display_name: String,
     pub email_address: Option<String>,
     pub time_zone: String,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct JiraIssueRef {
+    pub id: String,
+    pub key: String,
+    pub summary: String,
 }
 
 #[derive(Clone, Serialize)]
@@ -73,7 +84,7 @@ pub struct OkResponse {
     pub ok: bool,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ThresholdSettings {
     pub admin_ticket: String,
@@ -99,7 +110,7 @@ impl Default for ThresholdSettings {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default, PartialEq)]
 pub struct Settings {
     pub validation: ThresholdSettings,
 }
@@ -127,8 +138,19 @@ pub struct PushSummary {
 pub struct PlannedRequest {
     pub method: String,
     pub url: String,
-    pub headers: HashMap<String, String>,
-    pub body: String,
+    pub headers: std::collections::HashMap<String, String>,
+    pub body: Value,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorklogInput {
+    pub issue_id: i64,
+    pub time_spent_seconds: i64,
+    pub start_date: String,
+    pub start_time: String,
+    pub description: String,
+    pub author_account_id: String,
 }
 
 #[derive(Clone, Serialize)]
@@ -149,15 +171,28 @@ pub struct DryRunSummary {
     pub blocked: Vec<String>,
 }
 
-#[derive(Default)]
-pub struct Store {
-    pub days: HashMap<String, Day>,
-    pub settings: Settings,
+pub struct AppState {
+    pub repo: Mutex<Repository>,
 }
 
-#[derive(Default)]
-pub struct AppState {
-    pub store: Mutex<Store>,
+impl AppState {
+    pub fn new(app_handle: AppHandle) -> Result<Self, AppError> {
+        let app_data_dir = app_handle.path().app_data_dir().map_err(|error| {
+            AppError::internal(format!("Failed to resolve app data directory: {error}"))
+        })?;
+
+        std::fs::create_dir_all(&app_data_dir).map_err(|error| {
+            AppError::internal(format!(
+                "Failed to create app data directory {}: {error}",
+                app_data_dir.display()
+            ))
+        })?;
+
+        let repo = Repository::open(app_data_dir.join("tempo.db"))?;
+        Ok(Self {
+            repo: Mutex::new(repo),
+        })
+    }
 }
 
 pub fn default_profile() -> JiraProfile {
@@ -167,16 +202,4 @@ pub fn default_profile() -> JiraProfile {
         email_address: None,
         time_zone: "Local".into(),
     }
-}
-
-pub fn get_or_create_day(store: &mut Store, date: &str) -> Day {
-    store
-        .days
-        .entry(date.to_string())
-        .or_insert_with(|| Day {
-            date: date.to_string(),
-            notes: String::new(),
-            entries: Vec::new(),
-        })
-        .clone()
 }

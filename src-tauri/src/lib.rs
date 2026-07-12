@@ -1,13 +1,20 @@
 mod commands;
+mod core;
 mod error;
 mod state;
 
+use tauri::Manager;
 use state::AppState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .manage(AppState::default())
+        .setup(|app| {
+            let state = AppState::new(app.handle().clone())
+                .map_err(|error| -> Box<dyn std::error::Error> { Box::new(error) })?;
+            app.manage(state);
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::health::health_check,
             commands::jira::get_profile,

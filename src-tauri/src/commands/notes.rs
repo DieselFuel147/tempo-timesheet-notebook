@@ -1,7 +1,7 @@
 use tauri::State;
 
 use crate::error::AppError;
-use crate::state::{AppState, Day, OkResponse};
+use crate::state::{AppState, OkResponse};
 
 #[tauri::command]
 pub fn save_day_notes(
@@ -9,17 +9,12 @@ pub fn save_day_notes(
     notes: String,
     state: State<'_, AppState>,
 ) -> Result<OkResponse, AppError> {
-    let mut store = state
-        .store
+    let mut repo = state
+        .repo
         .lock()
-        .map_err(|_| AppError::message("Failed to lock in-memory store"))?;
+        .map_err(|_| AppError::internal("Failed to lock repository"))?;
 
-    let day = store.days.entry(date.clone()).or_insert_with(|| Day {
-        date,
-        notes: String::new(),
-        entries: Vec::new(),
-    });
-    day.notes = notes;
+    repo.save_notes(&date, &notes)?;
 
     Ok(OkResponse { ok: true })
 }

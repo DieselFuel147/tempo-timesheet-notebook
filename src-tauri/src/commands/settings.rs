@@ -5,21 +5,20 @@ use crate::state::{AppState, Settings};
 
 #[tauri::command]
 pub fn get_settings(state: State<'_, AppState>) -> Result<Settings, AppError> {
-    let store = state
-        .store
+    let repo = state
+        .repo
         .lock()
-        .map_err(|_| AppError::message("Failed to lock in-memory store"))?;
+        .map_err(|_| AppError::internal("Failed to lock repository"))?;
 
-    Ok(store.settings.clone())
+    repo.get_settings()
 }
 
 #[tauri::command]
 pub fn save_settings(settings: Settings, state: State<'_, AppState>) -> Result<Settings, AppError> {
-    let mut store = state
-        .store
+    let mut repo = state
+        .repo
         .lock()
-        .map_err(|_| AppError::message("Failed to lock in-memory store"))?;
+        .map_err(|_| AppError::internal("Failed to lock repository"))?;
 
-    store.settings = settings;
-    Ok(store.settings.clone())
+    repo.save_settings(&settings)
 }

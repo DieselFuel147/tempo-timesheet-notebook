@@ -30,6 +30,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "icon": [],
     "createUpdaterArtifacts": false,
     "macOS": {
       "minimumSystemVersion": "13.0"
