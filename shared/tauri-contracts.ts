@@ -1,5 +1,5 @@
 import type { SaveSettingsInput, Settings } from './settings'
-import type { Day, DryRunSummary, Entry, JiraProfile, NotebookDay, PushSummary } from './types'
+import type { DryRunSummary, Entry, JiraProfile, NotebookDay, PushSummary } from './types'
 
 // Wave 0 is the initial parity-oriented Tauri command set. Later waves can add
 // commands, but these names and payloads should stay stable while the current
@@ -117,7 +117,7 @@ export interface TauriCommandContracts {
   }
   get_day: {
     input: GetDayInput
-    output: Day
+    output: NotebookDay
   }
   save_day: {
     input: SaveDayInput
