@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import PsychologyIcon from '@mui/icons-material/Psychology'
 import { api } from './api'
-import { Autocomplete, Box, TextField } from '@mui/material'
-import { theme } from './theme'
+import { Autocomplete, Box, TextField, useTheme } from '@mui/material'
+import { MONO_FONT } from './theme'
 
 interface Props {
   value: string
@@ -22,6 +22,7 @@ interface TicketOption {
 // non-empty but not a valid key. Autocomplete is best-effort: if Jira isn't
 // reachable, the field still works as a plain text input.
 export function TicketField({ value, invalid, adminTicket, onChange, onAdmin }: Props) {
+  const theme = useTheme()
   const [loading, setLoading] = useState(false)
   const [options, setOptions] = useState<TicketOption[]>([])
 
@@ -66,7 +67,15 @@ export function TicketField({ value, invalid, adminTicket, onChange, onAdmin }: 
             placeholder="ABC-123"
             error={invalid}
             size="small"
-            sx={{ width: 220 }}
+            sx={{
+              width: 220,
+              '& .MuiInputBase-input': {
+                fontFamily: MONO_FONT,
+                fontWeight: 600,
+                letterSpacing: '0.03em',
+                textTransform: 'uppercase',
+              },
+            }}
             slotProps={{
               input: params.slotProps.input,
               htmlInput: {

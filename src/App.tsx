@@ -13,6 +13,8 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import UploadIcon from '@mui/icons-material/Upload'
 import SyncIcon from '@mui/icons-material/Sync'
+import AccessTimeIcon from '@mui/icons-material/AccessTime'
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import type { DryRunSummary, JiraProfile, NotebookBlock, NotebookDay, PushSummary } from '../shared/types'
 import { defaultSettings, type Settings as AppSettings } from '../shared/settings'
 import { isPersistedNotebookBlock, notebookBlockSummary } from '../shared/notebook'
@@ -26,19 +28,23 @@ import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
 import dayjs from 'dayjs'
 import {
   Alert,
+  AppBar,
   Box,
   Button,
   Chip,
-  Container,
+  Collapse,
   CssBaseline,
   IconButton,
   InputBase,
   Paper,
   Stack,
   ThemeProvider,
+  Toolbar,
   Typography,
+  useTheme,
 } from '@mui/material'
-import { theme } from './theme'
+import { MONO_FONT } from './theme'
+import { useAppTheme } from './useAppTheme'
 import { TicketField } from './TicketField'
 
 const IDLE_THRESHOLD_MS = 3 * 60 * 1000
@@ -46,8 +52,34 @@ const TIMELINE_REFRESH_MS = 1000
 const PX_PER_MINUTE = 2
 const MIN_BLOCK_HEIGHT = 42
 const MIN_BLOCK_DURATION_MINUTES = 1
-const COLORS = ['#5b86f7', '#8a6bf0', '#39b88f', '#e0a13a', '#d46b91']
 const DEBUG_TIME_SCALE = Number(import.meta.env.VITE_NOTEBOOK_TIME_SCALE ?? '1')
+
+// Chronological color assignment with shared-ticket grouping: blocks sharing a
+// non-empty ticket ID adopt the earliest color assigned to that ticket; every
+// other persisted block cycles through the palette. Used by both the editor
+// left-borders and the ruler so a ticket keeps one color across both surfaces.
+function assignBlockColors(blocks: NotebookBlock[], palette: string[]): Map<string, string> {
+  const byBlock = new Map<string, string>()
+  const byTicket = new Map<string, string>()
+  let next = 0
+  for (const block of blocks) {
+    if (!isPersistedBlock(block)) continue
+    const ticketId = block.ticketId.trim()
+    let color: string
+    if (ticketId) {
+      if (!byTicket.has(ticketId)) {
+        byTicket.set(ticketId, palette[next % palette.length])
+        next += 1
+      }
+      color = byTicket.get(ticketId) as string
+    } else {
+      color = palette[next % palette.length]
+      next += 1
+    }
+    byBlock.set(block.id, color)
+  }
+  return byBlock
+}
 
 type PushState =
   | { mode: 'idle' }
@@ -236,7 +268,9 @@ const NotebookEditorPanel = memo(function NotebookEditorPanel({
   activeReopenableId,
   getTextAreaRef,
 }: NotebookEditorPanelProps) {
+  const theme = useTheme()
   const activeStartedId = blocks.findLast((block) => block.startMinute !== null && !block.closed)?.id ?? null
+  const blockColorMap = useMemo(() => assignBlockColors(blocks, theme.blockColors), [blocks, theme.blockColors])
 
   return (
     <Box>
@@ -255,6 +289,7 @@ const NotebookEditorPanel = memo(function NotebookEditorPanel({
           const isLive = block.id === activeStartedId
           const summary = notebookBlockSummary(block)
           const syncChip = blockSyncLabel(block)
+          const accent = blockColorMap.get(block.id) ?? null
 
           return (
             <Paper
@@ -264,7 +299,8 @@ const NotebookEditorPanel = memo(function NotebookEditorPanel({
                 p: 1.25,
                 borderColor: isReopenable ? 'warning.main' : 'divider',
                 borderStyle: isReopenable ? 'dashed' : 'solid',
-                backgroundColor: isBlank ? 'rgba(255,255,255,0.02)' : 'background.paper',
+                borderLeft: accent && !isReopenable ? `3px solid ${accent}` : undefined,
+                backgroundColor: isBlank ? 'transparent' : 'background.paper',
               }}
             >
               <Stack spacing={1}>
@@ -322,11 +358,14 @@ const NotebookEditorPanel = memo(function NotebookEditorPanel({
                   minRows={2}
                   sx={{
                     alignItems: 'flex-start',
-                    border: '1px solid rgba(255,255,255,0.08)',
+                    border: '1px solid',
+                    borderColor: 'divider',
                     borderRadius: 1,
                     px: 1,
                     py: 0.75,
-                    backgroundColor: 'rgba(255,255,255,0.03)',
+                    fontSize: '15px',
+                    lineHeight: 1.6,
+                    backgroundColor: 'background.paper',
                     '& textarea': {
                       resize: 'none',
                     },
@@ -401,6 +440,8 @@ function TimelinePanel({
   onMerge,
   onPinPointerDown,
 }: TimelinePanelProps) {
+  const theme = useTheme()
+  const palette = theme.blockColors
   const ticketCounts = useMemo(() => {
     const counts = new Map<string, number>()
     for (const block of blocks) {
@@ -420,12 +461,12 @@ function TimelinePanel({
       const ticketId = block.ticketId.trim()
       if (!ticketId) continue
       if (!colors.has(ticketId)) {
-        colors.set(ticketId, COLORS[nextColor % COLORS.length])
+        colors.set(ticketId, palette[nextColor % palette.length])
         nextColor += 1
       }
     }
     return colors
-  }, [blocks])
+  }, [blocks, palette])
 
   const timedBlocks = useMemo(() => getTimedBlocks(blocks, nowMinute), [blocks, nowMinute])
   const minVisibleMinute = useMemo(() => {
@@ -441,7 +482,7 @@ function TimelinePanel({
     for (const timedBlock of timedBlocks) {
       const ticketId = timedBlock.block.ticketId.trim()
       if (!ticketId) continue
-      const color = ticketColors.get(ticketId) ?? COLORS[0]
+      const color = ticketColors.get(ticketId) ?? palette[0]
       const top = (timedBlock.startMinute - minVisibleMinute) * PX_PER_MINUTE + 16
       const bottom = (timedBlock.endMinute - minVisibleMinute) * PX_PER_MINUTE + 16
       const list = positions.get(ticketId) ?? []
@@ -479,11 +520,11 @@ function TimelinePanel({
           <Box key={minute} sx={{ position: 'absolute', insetInline: 0, top: (minute - minVisibleMinute) * PX_PER_MINUTE + 16 }}>
             <Typography
               variant="caption"
-              sx={{ position: 'absolute', left: -40, top: -8, color: 'text.secondary', fontVariantNumeric: 'tabular-nums' }}
+              sx={{ position: 'absolute', left: -40, top: -8, color: 'text.secondary', fontFamily: MONO_FONT, fontSize: 10, fontVariantNumeric: 'tabular-nums' }}
             >
               {`${String(Math.floor(minute / 60)).padStart(2, '0')}:00`}
             </Typography>
-            <Box sx={{ borderTop: '1px solid rgba(255,255,255,0.08)' }} />
+            <Box sx={{ borderTop: '1px solid', borderColor: 'divider' }} />
           </Box>
         )
       })}
@@ -510,7 +551,7 @@ function TimelinePanel({
         const height = Math.max(MIN_BLOCK_HEIGHT, duration * PX_PER_MINUTE)
         const top = (startMinute - minVisibleMinute) * PX_PER_MINUTE + 16
         const ticketId = block.ticketId.trim()
-        const color = ticketId ? ticketColors.get(ticketId) ?? COLORS[index % COLORS.length] : COLORS[index % COLORS.length]
+        const color = ticketId ? ticketColors.get(ticketId) ?? palette[index % palette.length] : palette[index % palette.length]
         const ticketCount = ticketId ? ticketCounts.get(ticketId) ?? 0 : 0
         const summary = notebookBlockSummary(block)
         const expanded = expandedId === block.id
@@ -533,9 +574,8 @@ function TimelinePanel({
                   left: 4,
                   width: 8,
                   height: Math.max(6, gapAbove * PX_PER_MINUTE),
-                  background:
-                    'repeating-linear-gradient(135deg, rgba(255,255,255,0.16), rgba(255,255,255,0.16) 4px, transparent 4px, transparent 8px)',
-                  opacity: 0.7,
+                  background: `repeating-linear-gradient(135deg, ${theme.ledger.gapStripe}, ${theme.ledger.gapStripe} 4px, transparent 4px, transparent 8px)`,
+                  opacity: 0.8,
                 }}
               />
             )}
@@ -548,10 +588,12 @@ function TimelinePanel({
                 minHeight: height,
                 p: 1,
                 bgcolor: color,
-                color: '#fff',
+                color: '#F4F5EF',
                 borderRadius: 1.5,
                 cursor: block.closed ? 'pointer' : 'default',
-                boxShadow: expanded ? '0 0 0 2px rgba(255,255,255,0.5)' : 'none',
+                boxShadow: expanded
+                  ? `0 0 0 2px ${theme.palette.text.primary}`
+                  : '0 2px 5px rgba(0,0,0,0.18)',
               }}
             >
               {expanded && block.closed && (
@@ -567,7 +609,7 @@ function TimelinePanel({
                       height: 16,
                       borderRadius: '50%',
                       bgcolor: 'warning.main',
-                      border: '2px solid #fff',
+                      border: `2px solid ${theme.ledger.pinBorder}`,
                       touchAction: 'none',
                       cursor: 'ns-resize',
                     }}
@@ -583,7 +625,7 @@ function TimelinePanel({
                       height: 16,
                       borderRadius: '50%',
                       bgcolor: 'warning.main',
-                      border: '2px solid #fff',
+                      border: `2px solid ${theme.ledger.pinBorder}`,
                       touchAction: 'none',
                       cursor: 'ns-resize',
                     }}
@@ -635,7 +677,7 @@ function TimelinePanel({
 
               <Stack spacing={0.75}>
                 <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
-                  <Typography variant="caption" sx={{ fontVariantNumeric: 'tabular-nums', color: 'rgba(255,255,255,0.9)' }}>
+                  <Typography variant="caption" sx={{ fontFamily: MONO_FONT, fontSize: 10, fontVariantNumeric: 'tabular-nums', color: 'rgba(255,255,255,0.9)' }}>
                     {`${String(Math.floor(startMinute / 60)).padStart(2, '0')}:${String(startMinute % 60).padStart(2, '0')} - ${
                       block.closed
                         ? `${String(Math.floor(endMinute / 60)).padStart(2, '0')}:${String(endMinute % 60).padStart(2, '0')}`
@@ -647,7 +689,7 @@ function TimelinePanel({
                       size="small"
                       icon={ticketCount > 1 ? <LinkIcon sx={{ color: '#fff !important' }} /> : undefined}
                       label={ticketCount > 1 ? `${ticketId} · ${ticketCount}` : ticketId}
-                      sx={{ bgcolor: 'rgba(0,0,0,0.2)', color: '#fff' }}
+                      sx={{ bgcolor: theme.ledger.ticketBadgeBg, color: '#fff', fontFamily: MONO_FONT, fontWeight: 600 }}
                     />
                   )}
                 </Stack>
@@ -685,6 +727,7 @@ function TimelinePanel({
 }
 
 export function App() {
+  const theme = useAppTheme()
   const [profile, setProfile] = useState<JiraProfile | null>(null)
   const [date, setDate] = useState(todayISO())
   const [day, setDay] = useState<NotebookDay | null>(null)
@@ -697,6 +740,13 @@ export function App() {
   const [summaryDraft, setSummaryDraft] = useState('')
   const [timelineTick, setTimelineTick] = useState(0)
   const [pushState, setPushState] = useState<PushState>({ mode: 'idle' })
+  const [syncOpen, setSyncOpen] = useState(false)
+
+  // Reveal the Tempo sync section automatically once a dry-run or push finishes
+  // so the request preview / results are visible without a manual toggle.
+  useEffect(() => {
+    if (pushState.mode === 'done') setSyncOpen(true)
+  }, [pushState])
 
   const dayRef = useRef<NotebookDay | null>(null)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -1115,14 +1165,19 @@ export function App() {
   const errorCount = validationIssues.filter((issue) => issue.level === 'error').length
   const warningCount = validationIssues.filter((issue) => issue.level === 'warning').length
   const pushBlocked = errorCount > 0 || unsyncedBlocks === 0
+  const isLiveTyping = (day?.blocks ?? []).some((block) => block.startMinute !== null && !block.closed)
+  const dryRunRunning = pushState.mode === 'running' && pushState.action === 'dry-run'
+  const pushRunning = pushState.mode === 'running' && pushState.action === 'push'
 
   if (showSettings) {
     return (
       <ThemeProvider theme={theme}>
         <CssBaseline />
-        <Container maxWidth="md" sx={{ py: 3, pb: 8 }}>
-          <Settings settings={settings} onSaved={setSettings} onClose={() => setShowSettings(false)} />
-        </Container>
+        <Box sx={{ minHeight: '100vh', bgcolor: 'background.default', py: 4, px: 2 }}>
+          <Box sx={{ maxWidth: 900, mx: 'auto' }}>
+            <Settings settings={settings} onSaved={setSettings} onClose={() => setShowSettings(false)} />
+          </Box>
+        </Box>
       </ThemeProvider>
     )
   }
@@ -1131,92 +1186,141 @@ export function App() {
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <LocalizationProvider dateAdapter={AdapterDayjs}>
-        <Container maxWidth="xl" sx={{ py: 3, pb: 8 }}>
-          <Stack spacing={2}>
+        <Box
+          sx={{
+            minHeight: '100vh',
+            bgcolor: 'background.default',
+            display: 'flex',
+            justifyContent: 'center',
+            p: { xs: 1.5, md: 3 },
+          }}
+        >
+          <Paper
+            elevation={8}
+            sx={{
+              width: '100%',
+              maxWidth: 1200,
+              borderRadius: 2,
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
+            }}
+          >
+            <AppBar position="static" elevation={0} sx={{ bgcolor: theme.ledger.barBg, color: theme.ledger.barText }}>
+              <Toolbar sx={{ gap: 2, flexWrap: 'wrap', py: 1 }}>
+                <Stack direction="row" spacing={1.5} sx={{ flex: 1, minWidth: 0, alignItems: 'center' }}>
+                  <AccessTimeIcon />
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography variant="subtitle1" component="h1" sx={{ lineHeight: 1.15, fontWeight: 600 }} noWrap>
+                      Protecht Timesheet Notebook
+                    </Typography>
+                    <Typography variant="caption" sx={{ fontFamily: MONO_FONT, color: theme.ledger.headerCaption, display: 'block' }} noWrap>
+                      {buildLegacyProfileLabel(profile)}
+                    </Typography>
+                  </Box>
+                </Stack>
+                <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+                  <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
+                    <Box
+                      sx={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: '50%',
+                        bgcolor: isLiveTyping ? 'secondary.main' : theme.ledger.headerCaption,
+                      }}
+                    />
+                    <Typography variant="caption" sx={{ fontFamily: MONO_FONT }}>
+                      {isLiveTyping ? 'logging' : 'idle'}
+                    </Typography>
+                  </Stack>
+                  <IconButton color="inherit" size="small" onClick={() => setShowSettings(true)} aria-label="Settings">
+                    <SettingsIcon fontSize="small" />
+                  </IconButton>
+                </Stack>
+              </Toolbar>
+            </AppBar>
+
             <Box
-              component="header"
               sx={{
+                px: { xs: 2, md: 3 },
+                py: 1.5,
+                bgcolor: theme.ledger.instructionBar,
+                borderBottom: '1px solid',
+                borderColor: 'divider',
                 display: 'flex',
+                flexWrap: 'wrap',
+                gap: 2,
                 justifyContent: 'space-between',
                 alignItems: 'center',
-                gap: 2,
-                flexWrap: 'wrap',
               }}
             >
-              <Box>
-                <Typography variant="h5" component="h1">
-                  Protecht Timesheet Notebook
+              <Box sx={{ minWidth: 0 }}>
+                <Typography variant="h6" sx={{ lineHeight: 1.2 }}>
+                  {prettyDate(date)}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  {buildLegacyProfileLabel(profile)}
+                  Notes are the source of truth. Time is inferred while you work, and the ruler mirrors the same blocks.
                 </Typography>
               </Box>
-              <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+              <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
                 <IconButton size="small" onClick={() => setDate(addDays(date, -1))} aria-label="Previous day">
                   <ChevronLeftIcon />
                 </IconButton>
-                <DatePicker value={dayjs(date)} onChange={(newValue) => setDate(newValue?.format('YYYY-MM-DD') || date)} />
+                <DatePicker
+                  value={dayjs(date)}
+                  onChange={(newValue) => setDate(newValue?.format('YYYY-MM-DD') || date)}
+                  slotProps={{ textField: { size: 'small', sx: { width: 150, bgcolor: 'background.paper', borderRadius: 1 } } }}
+                />
                 <IconButton size="small" onClick={() => setDate(addDays(date, 1))} aria-label="Next day">
                   <ChevronRightIcon />
                 </IconButton>
                 <IconButton size="small" onClick={() => setDate(todayISO())} aria-label="Today">
                   <TodayIcon fontSize="small" />
                 </IconButton>
-                <IconButton size="small" onClick={() => setShowSettings(true)} aria-label="Settings">
-                  <SettingsIcon fontSize="small" />
-                </IconButton>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<PlayArrowIcon />}
+                  onClick={() => void runPushAction('dry-run')}
+                  disabled={pushState.mode === 'running' || pushableBlocks.length === 0}
+                >
+                  {dryRunRunning ? 'Running dry run…' : 'Dry run'}
+                </Button>
+                <Button
+                  variant="contained"
+                  size="small"
+                  startIcon={pushRunning ? <SyncIcon /> : <UploadIcon />}
+                  onClick={() => void runPushAction('push')}
+                  disabled={pushState.mode === 'running' || pushBlocked}
+                >
+                  {pushRunning ? 'Pushing…' : 'Push'}
+                </Button>
               </Stack>
             </Box>
 
-            <Paper variant="outlined" sx={{ p: 1.5 }}>
-              <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} sx={{ justifyContent: 'space-between' }}>
-                <Box>
-                  <Typography variant="h6">{prettyDate(date)}</Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Notes are the source of truth. Time is inferred while you work, and the ruler mirrors the same blocks.
+            <Box sx={{ borderBottom: '1px solid', borderColor: 'divider' }}>
+              <Stack
+                direction="row"
+                spacing={1}
+                onClick={() => setSyncOpen((open) => !open)}
+                sx={{ px: { xs: 2, md: 3 }, py: 1, cursor: 'pointer', alignItems: 'center', justifyContent: 'space-between' }}
+              >
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography variant="subtitle2">Tempo sync</Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                    Closed notebook blocks with valid tickets are the push candidates. Editing synced timing, ticket, or summary marks that block unsynced again.
                   </Typography>
                 </Box>
-                <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
-                  <Chip label={`${trackedCount} blocks`} variant="outlined" />
-                  <Chip label={`${ticketCount} tickets`} variant="outlined" />
-                  <Chip label={`${unsyncedBlocks} ready to sync`} color={unsyncedBlocks > 0 ? 'warning' : 'default'} variant="outlined" />
-                  <Chip label={`${syncedBlocks} synced`} color={syncedBlocks > 0 ? 'success' : 'default'} variant="outlined" />
-                  <Chip label={`${formatHours(Math.round(totalMinutes))} tracked`} color="primary" variant="outlined" />
-                  <Chip label={`${errorCount} errors`} color={errorCount > 0 ? 'error' : 'default'} variant="outlined" />
-                  <Chip label={`${warningCount} warnings`} color={warningCount > 0 ? 'warning' : 'default'} variant="outlined" />
-                </Stack>
+                <IconButton size="small" aria-label={syncOpen ? 'Collapse Tempo sync' : 'Expand Tempo sync'}>
+                  <ExpandMoreIcon
+                    fontSize="small"
+                    sx={{ transform: syncOpen ? 'rotate(180deg)' : 'none', transition: 'transform 150ms' }}
+                  />
+                </IconButton>
               </Stack>
-            </Paper>
-
-            <Paper variant="outlined" sx={{ p: 1.5 }}>
-              <Stack spacing={1.25}>
-                <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25} sx={{ justifyContent: 'space-between', alignItems: { md: 'center' } }}>
-                  <Box>
-                    <Typography variant="h6">Tempo sync</Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Closed notebook blocks with valid tickets are the push candidates. Editing synced timing, ticket, or summary marks that block unsynced again.
-                    </Typography>
-                  </Box>
-                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-                    <Button
-                      variant="outlined"
-                      startIcon={<PlayArrowIcon />}
-                      onClick={() => void runPushAction('dry-run')}
-                      disabled={pushState.mode === 'running' || pushableBlocks.length === 0}
-                    >
-                      {pushState.mode === 'running' && pushState.action === 'dry-run' ? 'Running dry run…' : 'Dry run Tempo push'}
-                    </Button>
-                    <Button
-                      variant="contained"
-                      startIcon={pushState.mode === 'running' && pushState.action === 'push' ? <SyncIcon /> : <UploadIcon />}
-                      onClick={() => void runPushAction('push')}
-                      disabled={pushState.mode === 'running' || pushBlocked}
-                    >
-                      {pushState.mode === 'running' && pushState.action === 'push' ? 'Pushing…' : 'Push unsynced blocks'}
-                    </Button>
-                  </Stack>
-                </Stack>
-
+              <Collapse in={syncOpen} timeout="auto" unmountOnExit>
+                <Box sx={{ px: { xs: 2, md: 3 }, pb: 2 }}>
+                  <Stack spacing={1.25}>
                 {errorCount > 0 && (
                   <Alert severity="error">Resolve validation errors before pushing notebook blocks to Tempo.</Alert>
                 )}
@@ -1246,15 +1350,15 @@ export function App() {
                         {pushState.summary.planned.map((planned) => {
                           const matchingBlock = day?.blocks.find((block) => block.id === planned.blockId)
                           return (
-                            <Paper key={planned.blockId} variant="outlined" sx={{ p: 1.25, bgcolor: 'rgba(255,255,255,0.02)' }}>
+                            <Paper key={planned.blockId} variant="outlined" sx={{ p: 1.25, bgcolor: 'background.default' }}>
                               <Stack spacing={0.5}>
                                 <Typography variant="subtitle2">
                                   {planned.ticketId} · {matchingBlock ? notebookBlockSummary(matchingBlock) : 'Notebook block'}
                                 </Typography>
-                                <Typography variant="caption" color="text.secondary">
+                                <Typography variant="caption" color="text.secondary" sx={{ fontFamily: MONO_FONT }}>
                                   POST {planned.request.url}
                                 </Typography>
-                                <Typography variant="caption" sx={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
+                                <Typography variant="caption" sx={{ fontFamily: MONO_FONT, wordBreak: 'break-all' }}>
                                   {JSON.stringify(planned.request.body)}
                                 </Typography>
                               </Stack>
@@ -1293,92 +1397,136 @@ export function App() {
                     )}
                   </Stack>
                 )}
-              </Stack>
-            </Paper>
+                  </Stack>
+                </Box>
+              </Collapse>
+            </Box>
 
-            {error && <Alert severity="error">{error}</Alert>}
+            {error && (
+              <Box sx={{ px: { xs: 2, md: 3 }, pt: 2 }}>
+                <Alert severity="error">{error}</Alert>
+              </Box>
+            )}
 
             {summaryEditorId && (
-              <Paper variant="outlined" sx={{ p: 1.5 }}>
-                <Stack spacing={1}>
-                  <Typography variant="subtitle2">Edit Tempo summary</Typography>
-                  <InputBase
-                    value={summaryDraft}
-                    onChange={(event) => setSummaryDraft(event.target.value)}
-                    placeholder="Short summary to send to Tempo"
-                    fullWidth
-                    sx={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: 1, px: 1, py: 0.75 }}
-                  />
-                  <Stack direction="row" spacing={1}>
-                    <Button variant="contained" startIcon={<CheckIcon />} onClick={saveSummaryOverride}>
-                      Save summary
-                    </Button>
-                    <Button variant="text" onClick={() => setSummaryEditorId(null)}>
-                      Cancel
-                    </Button>
+              <Box sx={{ px: { xs: 2, md: 3 }, pt: 2 }}>
+                <Paper variant="outlined" sx={{ p: 1.5 }}>
+                  <Stack spacing={1}>
+                    <Typography variant="subtitle2">Edit Tempo summary</Typography>
+                    <InputBase
+                      value={summaryDraft}
+                      onChange={(event) => setSummaryDraft(event.target.value)}
+                      placeholder="Short summary to send to Tempo"
+                      fullWidth
+                      sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, px: 1, py: 0.75, bgcolor: 'background.default' }}
+                    />
+                    <Stack direction="row" spacing={1}>
+                      <Button variant="contained" startIcon={<CheckIcon />} onClick={saveSummaryOverride}>
+                        Save summary
+                      </Button>
+                      <Button variant="text" onClick={() => setSummaryEditorId(null)}>
+                        Cancel
+                      </Button>
+                    </Stack>
                   </Stack>
-                </Stack>
-              </Paper>
+                </Paper>
+              </Box>
             )}
 
             {loading || !day ? (
-              <Typography variant="body2" color="text.secondary">
-                Loading…
-              </Typography>
+              <Box sx={{ p: 3 }}>
+                <Typography variant="body2" color="text.secondary">
+                  Loading…
+                </Typography>
+              </Box>
             ) : (
-              <Paper variant="outlined" sx={{ overflow: 'hidden' }}>
-                <Stack direction={{ xs: 'column', md: 'row' }} sx={{ minHeight: 540 }}>
-                  <Box
-                    sx={{
-                      flex: 1.25,
-                      p: 2,
-                      borderRight: { xs: 'none', md: '1px solid rgba(255,255,255,0.08)' },
-                      borderBottom: { xs: '1px solid rgba(255,255,255,0.08)', md: 'none' },
-                      background:
-                        'repeating-linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.03) 31px, rgba(255,255,255,0.045) 31px, rgba(255,255,255,0.045) 32px)',
-                    }}
-                  >
-                    <Typography variant="subtitle1" sx={{ mb: 1.25, fontWeight: 600 }}>
-                      Notebook
-                    </Typography>
-                    <NotebookEditorPanel
-                      blocks={day.blocks}
-                      adminTicket={settings.validation.adminTicket}
-                      issuesByBlock={issuesByBlock}
-                      onTextChange={handleTextChange}
-                      onTicketChange={handleTicketChange}
-                      onSelectSummaryEdit={openSummaryEditor}
-                      onDeleteBlock={handleDeleteBlock}
-                      activeReopenableId={activeReopenableId}
-                      getTextAreaRef={getTextAreaRef}
-                    />
-                  </Box>
+              <Stack direction={{ xs: 'column', md: 'row' }} sx={{ flex: 1, minHeight: 0 }}>
+                <Box
+                  sx={{
+                    flex: 1.25,
+                    p: 2,
+                    overflowY: 'auto',
+                    maxHeight: { xs: 'none', md: 640 },
+                    borderRight: { xs: 'none', md: '1px solid' },
+                    borderBottom: { xs: '1px solid', md: 'none' },
+                    borderColor: 'divider',
+                    background: `repeating-linear-gradient(180deg, ${theme.ledger.ruledPaperBase}, ${theme.ledger.ruledPaperBase} 27px, ${theme.ledger.ruledPaperLine} 27px, ${theme.ledger.ruledPaperLine} 28px)`,
+                  }}
+                >
+                  <Typography variant="subtitle1" sx={{ mb: 1.25, fontWeight: 600 }}>
+                    Notebook
+                  </Typography>
+                  <NotebookEditorPanel
+                    blocks={day.blocks}
+                    adminTicket={settings.validation.adminTicket}
+                    issuesByBlock={issuesByBlock}
+                    onTextChange={handleTextChange}
+                    onTicketChange={handleTicketChange}
+                    onSelectSummaryEdit={openSummaryEditor}
+                    onDeleteBlock={handleDeleteBlock}
+                    activeReopenableId={activeReopenableId}
+                    getTextAreaRef={getTextAreaRef}
+                  />
+                </Box>
 
-                  <Box sx={{ width: { xs: '100%', md: 380 }, p: 2, bgcolor: 'rgba(255,255,255,0.02)' }}>
-                    <Stack spacing={1}>
-                      <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-                        Ruler
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        Tap a closed block to reveal drag pins, gap absorb controls, and merge actions. Shared ticket IDs keep the same color and connect across the timeline.
-                      </Typography>
-                    </Stack>
-                    <TimelinePanel
-                      blocks={day.blocks.filter((block) => isPersistedBlock(block))}
-                      nowMinute={nowMinute}
-                      expandedId={expandedId}
-                      onToggleExpand={(id) => setExpandedId((current) => (current === id ? null : id))}
-                      onSelectSummaryEdit={openSummaryEditor}
-                      onAbsorbGap={handleAbsorbGap}
-                      onMerge={handleMerge}
-                      onPinPointerDown={handlePinPointerDown}
-                    />
-                  </Box>
-                </Stack>
-              </Paper>
+                <Box
+                  sx={{
+                    width: { xs: '100%', md: 380 },
+                    p: 2,
+                    overflowY: 'auto',
+                    maxHeight: { xs: 'none', md: 640 },
+                    bgcolor: theme.ledger.rulerPanel,
+                  }}
+                >
+                  <Stack spacing={1}>
+                    <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                      Ruler
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Tap a closed block to reveal drag pins, gap absorb controls, and merge actions. Shared ticket IDs keep the same color and connect across the timeline.
+                    </Typography>
+                  </Stack>
+                  <TimelinePanel
+                    blocks={day.blocks.filter((block) => isPersistedBlock(block))}
+                    nowMinute={nowMinute}
+                    expandedId={expandedId}
+                    onToggleExpand={(id) => setExpandedId((current) => (current === id ? null : id))}
+                    onSelectSummaryEdit={openSummaryEditor}
+                    onAbsorbGap={handleAbsorbGap}
+                    onMerge={handleMerge}
+                    onPinPointerDown={handlePinPointerDown}
+                  />
+                </Box>
+              </Stack>
             )}
-          </Stack>
-        </Container>
+
+            <Stack
+              direction="row"
+              useFlexGap
+              spacing={2}
+              sx={{ px: { xs: 2, md: 3 }, py: 1.5, mt: 'auto', bgcolor: theme.ledger.barBg, color: theme.ledger.barText, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}
+            >
+              <Stack direction="row" useFlexGap spacing={2.5} sx={{ flexWrap: 'wrap' }}>
+                {[
+                  `blocks · ${trackedCount}`,
+                  `tickets · ${ticketCount}`,
+                  `ready · ${unsyncedBlocks}`,
+                  `synced · ${syncedBlocks}`,
+                  `tracked · ${formatHours(Math.round(totalMinutes))}`,
+                  `errors · ${errorCount}`,
+                  `warnings · ${warningCount}`,
+                ].map((stat) => (
+                  <Typography key={stat} variant="caption" sx={{ fontFamily: MONO_FONT }}>
+                    {stat}
+                  </Typography>
+                ))}
+              </Stack>
+              <Typography variant="caption" sx={{ fontFamily: MONO_FONT, opacity: 0.75 }}>
+                tap block · pins + merge
+              </Typography>
+            </Stack>
+          </Paper>
+        </Box>
       </LocalizationProvider>
     </ThemeProvider>
   )
