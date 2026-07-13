@@ -1430,7 +1430,7 @@ export function App() {
                   {prettyDate(date)}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  Notes are the source of truth. Time is inferred while you work, and the ruler mirrors the same blocks.
+                  Notes are the source of truth. Time is inferred while you work, and the timeline mirrors the same blocks.
                 </Typography>
               </Box>
               <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
@@ -1632,7 +1632,7 @@ export function App() {
                 >
                   <Stack spacing={1}>
                     <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-                      Ruler
+                      Timeline
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
                       Tap a closed block to reveal drag pins, gap absorb controls, and merge actions. Shared ticket IDs keep the same color and connect across the timeline.
