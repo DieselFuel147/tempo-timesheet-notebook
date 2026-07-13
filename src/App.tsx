@@ -17,7 +17,7 @@ import FilterAltIcon from '@mui/icons-material/FilterAlt'
 import type { DryRunSummary, JiraProfile, NotebookBlock, NotebookDay, PushSummary, TempoWorklog } from '../shared/types'
 import { defaultSettings, type Settings as AppSettings } from '../shared/settings'
 import { autoSummary, isPersistedNotebookBlock, notebookBlockSummary } from '../shared/notebook'
-import { validateNotebookDay, type ValidationIssue } from '../shared/validation'
+import { parseTime, validateNotebookDay, type ValidationIssue } from '../shared/validation'
 import { api } from './api'
 import { addDays, formatHours, minutesToHHmm, prettyDate, todayISO } from './dateutil'
 import { Settings } from './Settings'
@@ -42,6 +42,7 @@ import {
   Paper,
   Stack,
   Switch,
+  TextField,
   ThemeProvider,
   Toolbar,
   Tooltip,
@@ -312,12 +313,51 @@ function NotebookTicketField({ block, invalid, adminTicket, onTicketChange }: No
   )
 }
 
+interface NotebookTimeFieldsProps {
+  block: NotebookBlock
+  onTimeChange: (edge: 'start' | 'end', value: string) => void
+}
+
+// Compact, editable start–end times for retroactive entry. Native "HH:mm"
+// inputs map straight onto the block's minutes-from-midnight model; the end is
+// disabled until a start exists so the block never lands in an invalid state.
+function NotebookTimeFields({ block, onTimeChange }: NotebookTimeFieldsProps) {
+  const startValue = block.startMinute === null ? '' : minutesToHHmm(block.startMinute)
+  const endValue = block.endMinute === null ? '' : minutesToHHmm(block.endMinute)
+  const timeFieldSx = { width: 104, '& input': { fontFamily: MONO_FONT, fontSize: 13, py: 0.5 } }
+  return (
+    <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', flexShrink: 0 }}>
+      <TextField
+        size="small"
+        type="time"
+        value={startValue}
+        onChange={(event) => onTimeChange('start', event.target.value)}
+        slotProps={{ htmlInput: { 'aria-label': 'Start time' } }}
+        sx={timeFieldSx}
+      />
+      <Typography variant="caption" color="text.secondary">
+        –
+      </Typography>
+      <TextField
+        size="small"
+        type="time"
+        value={endValue}
+        onChange={(event) => onTimeChange('end', event.target.value)}
+        disabled={block.startMinute === null}
+        slotProps={{ htmlInput: { 'aria-label': 'End time' } }}
+        sx={timeFieldSx}
+      />
+    </Stack>
+  )
+}
+
 interface NotebookEditorPanelProps {
   blocks: NotebookBlock[]
   adminTicket: string
   issuesByBlock: Map<string, ValidationIssue[]>
   onTextChange: (id: string, value: string, eventTarget?: HTMLTextAreaElement | null) => void
   onTicketChange: (id: string, ticketId: string) => void
+  onTimeChange: (id: string, edge: 'start' | 'end', value: string) => void
   onSummaryChange: (id: string, value: string) => void
   onSuggest: (id: string) => void
   suggestingId: string | null
@@ -332,6 +372,7 @@ const NotebookEditorPanel = memo(function NotebookEditorPanel({
   issuesByBlock,
   onTextChange,
   onTicketChange,
+  onTimeChange,
   onSummaryChange,
   onSuggest,
   suggestingId,
@@ -377,9 +418,10 @@ const NotebookEditorPanel = memo(function NotebookEditorPanel({
                 <Stack
                   direction={{ xs: 'column', sm: 'row' }}
                   spacing={1}
-                  sx={{ alignItems: { xs: 'stretch', sm: 'center' }, justifyContent: 'space-between' }}
+                  useFlexGap
+                  sx={{ alignItems: { xs: 'stretch', sm: 'center' }, flexWrap: 'wrap', justifyContent: 'space-between' }}
                 >
-                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Box sx={{ flex: '1 1 200px', minWidth: 140, maxWidth: { sm: 260 } }}>
                     <NotebookTicketField
                       block={block}
                       invalid={ticketInvalid}
@@ -387,6 +429,7 @@ const NotebookEditorPanel = memo(function NotebookEditorPanel({
                       onTicketChange={(ticketId) => onTicketChange(block.id, ticketId)}
                     />
                   </Box>
+                  <NotebookTimeFields block={block} onTimeChange={(edge, value) => onTimeChange(block.id, edge, value)} />
                   <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
                     <Chip
                       size="small"
@@ -1276,6 +1319,28 @@ export function App() {
     }))
   }, [commitDay, patchBlock])
 
+  // Manual (retroactive) time entry. Deliberately does NOT touch lastActivityRef
+  // or auto-close siblings — unlike live typing — so the idle timer can't stomp
+  // a hand-set time and overlaps are left for validation to flag.
+  const handleTimeChange = useCallback((id: string, edge: 'start' | 'end', value: string) => {
+    const minutes = value.trim() === '' ? null : parseTime(value)
+    if (value.trim() !== '' && minutes === null) return
+    commitDay((currentDay) => ({
+      date: currentDay.date,
+      blocks: currentDay.blocks.map((block) => {
+        if (block.id !== id) return block
+        if (edge === 'start') {
+          return minutes === null
+            ? patchBlock(block, { startMinute: null, endMinute: null, closed: false })
+            : patchBlock(block, { startMinute: minutes })
+        }
+        return minutes === null
+          ? patchBlock(block, { endMinute: null, closed: false })
+          : patchBlock(block, { endMinute: minutes, closed: true })
+      }),
+    }))
+  }, [commitDay, patchBlock])
+
   const handleDeleteBlock = useCallback((id: string) => {
     commitDay((currentDay) => ({
       date: currentDay.date,
@@ -1813,6 +1878,7 @@ export function App() {
                     issuesByBlock={issuesByBlock}
                     onTextChange={handleTextChange}
                     onTicketChange={handleTicketChange}
+                    onTimeChange={handleTimeChange}
                     onSummaryChange={handleSummaryChange}
                     onSuggest={handleSuggest}
                     suggestingId={suggestingId}
