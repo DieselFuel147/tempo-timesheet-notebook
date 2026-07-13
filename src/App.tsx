@@ -13,7 +13,8 @@ import SyncIcon from '@mui/icons-material/Sync'
 import AccessTimeIcon from '@mui/icons-material/AccessTime'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth'
-import type { DryRunSummary, JiraProfile, NotebookBlock, NotebookDay, PushSummary } from '../shared/types'
+import FilterAltIcon from '@mui/icons-material/FilterAlt'
+import type { DryRunSummary, JiraProfile, NotebookBlock, NotebookDay, PushSummary, TempoWorklog } from '../shared/types'
 import { defaultSettings, type Settings as AppSettings } from '../shared/settings'
 import { autoSummary, isPersistedNotebookBlock, notebookBlockSummary } from '../shared/notebook'
 import { validateNotebookDay, type ValidationIssue } from '../shared/validation'
@@ -34,12 +35,16 @@ import {
   CircularProgress,
   Collapse,
   CssBaseline,
+  FormControlLabel,
   IconButton,
   InputBase,
+  Menu,
   Paper,
   Stack,
+  Switch,
   ThemeProvider,
   Toolbar,
+  Tooltip,
   Typography,
   useTheme,
 } from '@mui/material'
@@ -58,6 +63,28 @@ const RULER_GUTTER = 44
 const MIN_BLOCK_DURATION_MINUTES = 1
 const DEBUG_TIME_SCALE = Number(import.meta.env.VITE_NOTEBOOK_TIME_SCALE ?? '1')
 const DAY_MINUTES = 24 * 60
+
+// Draggable notebook/timeline split (desktop row layout only). Bounds keep both
+// panels usable regardless of how far the handle is dragged.
+const DEFAULT_TIMELINE_WIDTH = 380
+const MIN_TIMELINE_WIDTH = 280
+const MAX_TIMELINE_WIDTH = 760
+const TIMELINE_WIDTH_KEY = 'tempo:timeline-width'
+
+function clampTimelineWidth(width: number): number {
+  return Math.min(MAX_TIMELINE_WIDTH, Math.max(MIN_TIMELINE_WIDTH, width))
+}
+
+function readTimelineWidth(): number {
+  if (typeof window === 'undefined') return DEFAULT_TIMELINE_WIDTH
+  const parsed = Number(window.localStorage.getItem(TIMELINE_WIDTH_KEY))
+  return Number.isFinite(parsed) && parsed > 0 ? clampTimelineWidth(parsed) : DEFAULT_TIMELINE_WIDTH
+}
+
+function writeTimelineWidth(width: number): void {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(TIMELINE_WIDTH_KEY, String(Math.round(width)))
+}
 
 // Chronological color assignment with shared-ticket grouping: blocks sharing a
 // non-empty ticket ID adopt the earliest color assigned to that ticket; every
@@ -214,6 +241,40 @@ function getTimedBlocks(blocks: NotebookBlock[], nowMinute: number): TimedBlockI
 
 function isPersistedBlock(block: NotebookBlock): boolean {
   return block.startMinute !== null || block.text.trim().length > 0 || block.ticketId.trim().length > 0
+}
+
+interface TempoWorklogView extends TempoWorklog {
+  startMinute: number
+  endMinute: number
+  inNotebook: boolean
+}
+
+// Tempo worklog startTime is "HH:mm:ss"; map to minutes-from-midnight so read
+// worklogs share the ruler's coordinate space with editable notebook blocks.
+function parseStartTimeToMinute(startTime: string): number | null {
+  const match = /^(\d{1,2}):(\d{2})/.exec(startTime.trim())
+  if (!match) return null
+  const hours = Number(match[1])
+  const minutes = Number(match[2])
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null
+  return Math.min(DAY_MINUTES, Math.max(0, hours * 60 + minutes))
+}
+
+function toTempoWorklogViews(worklogs: TempoWorklog[], localWorklogIds: Set<number>): TempoWorklogView[] {
+  return worklogs
+    .map((worklog) => {
+      const startMinute = parseStartTimeToMinute(worklog.startTime)
+      if (startMinute === null) return null
+      const durationMinutes = Math.max(1, Math.round(worklog.timeSpentSeconds / 60))
+      return {
+        ...worklog,
+        startMinute,
+        endMinute: Math.min(DAY_MINUTES, startMinute + durationMinutes),
+        inNotebook: localWorklogIds.has(worklog.tempoWorklogId),
+      }
+    })
+    .filter((view): view is TempoWorklogView => view !== null)
+    .sort((left, right) => left.startMinute - right.startMinute)
 }
 
 function isPushableBlock(block: NotebookBlock): boolean {
@@ -457,6 +518,8 @@ interface TimelinePanelProps {
   blocks: NotebookBlock[]
   nowMinute: number
   expandedId: string | null
+  tempoWorklogs: TempoWorklog[]
+  localWorklogIds: Set<number>
   onToggleExpand: (id: string) => void
   onAbsorbGap: (id: string, direction: 'up' | 'down') => void
   onMerge: (id: string, direction: 'prev' | 'next') => void
@@ -464,10 +527,16 @@ interface TimelinePanelProps {
   onDeselect: () => void
 }
 
+// Width of the read-only lane on the ruler's right edge that shows worklogs
+// already confirmed in Tempo, kept clear of the editable notebook blocks.
+const TEMPO_LANE_WIDTH = 20
+
 function TimelinePanel({
   blocks,
   nowMinute,
   expandedId,
+  tempoWorklogs,
+  localWorklogIds,
   onToggleExpand,
   onAbsorbGap,
   onMerge,
@@ -503,14 +572,19 @@ function TimelinePanel({
   }, [blocks, palette])
 
   const timedBlocks = useMemo(() => getTimedBlocks(blocks, nowMinute), [blocks, nowMinute])
+  const tempoViews = useMemo(
+    () => toTempoWorklogViews(tempoWorklogs, localWorklogIds),
+    [tempoWorklogs, localWorklogIds],
+  )
   const minVisibleMinute = useMemo(() => {
-    const firstMinute = timedBlocks.length > 0 ? Math.min(...timedBlocks.map((block) => block.startMinute), nowMinute) : nowMinute
+    const candidates = [nowMinute, ...timedBlocks.map((block) => block.startMinute), ...tempoViews.map((view) => view.startMinute)]
+    const firstMinute = Math.min(...candidates)
     return Math.max(0, Math.floor((firstMinute - 30) / 60) * 60)
-  }, [nowMinute, timedBlocks])
+  }, [nowMinute, timedBlocks, tempoViews])
 
   const maxMinute = Math.min(
     DAY_MINUTES,
-    Math.max(minVisibleMinute + 120, ...timedBlocks.map((block) => block.endMinute)),
+    Math.max(minVisibleMinute + 120, ...timedBlocks.map((block) => block.endMinute), ...tempoViews.map((view) => view.endMinute)),
   )
   const timelineHeight = Math.max(320, (maxMinute - minVisibleMinute) * PX_PER_MINUTE + 64)
 
@@ -633,7 +707,7 @@ function TimelinePanel({
         const canMergeNext = expanded && block.closed && !!next?.block.closed
 
         return (
-          <Box key={block.id} sx={{ position: 'absolute', top, left: 16, right: 0 }}>
+          <Box key={block.id} sx={{ position: 'absolute', top, left: 16, right: tempoViews.length > 0 ? TEMPO_LANE_WIDTH : 0 }}>
             {gapAbove > 0 && (
               <Box
                 sx={{
@@ -817,6 +891,42 @@ function TimelinePanel({
           </Box>
         )
       })}
+
+        {/* Read-only lane: worklogs already confirmed in Tempo for this day.
+            Kept in its own right-edge column so it never collides with the
+            editable notebook blocks. */}
+        {tempoViews.map((view) => {
+          const top = (view.startMinute - minVisibleMinute) * PX_PER_MINUTE + 16
+          const height = Math.max(MIN_BLOCK_PIXEL_FLOOR, (view.endMinute - view.startMinute) * PX_PER_MINUTE)
+          const startLabel = `${String(Math.floor(view.startMinute / 60)).padStart(2, '0')}:${String(view.startMinute % 60).padStart(2, '0')}`
+          const endLabel = `${String(Math.floor(view.endMinute / 60)).padStart(2, '0')}:${String(view.endMinute % 60).padStart(2, '0')}`
+          const durationLabel = formatHours(view.endMinute - view.startMinute)
+          const tooltip = `${view.issueKey} · ${startLabel}–${endLabel} · ${durationLabel}${
+            view.description ? ` · ${view.description}` : ''
+          }${view.inNotebook ? ' · in notebook' : ''}`
+          return (
+            <Tooltip key={`tempo-${view.tempoWorklogId}`} title={tooltip} placement="left" arrow>
+              <Box
+                aria-label={tooltip}
+                sx={{
+                  position: 'absolute',
+                  top,
+                  right: 0,
+                  width: TEMPO_LANE_WIDTH - 6,
+                  minHeight: height,
+                  borderRadius: 0.75,
+                  border: '1px solid',
+                  borderColor: view.inNotebook ? 'success.main' : 'text.secondary',
+                  bgcolor: view.inNotebook ? 'success.main' : 'transparent',
+                  opacity: view.inNotebook ? 0.55 : 0.9,
+                  backgroundImage: view.inNotebook
+                    ? undefined
+                    : `repeating-linear-gradient(135deg, ${theme.ledger.gapStripe}, ${theme.ledger.gapStripe} 3px, transparent 3px, transparent 6px)`,
+                }}
+              />
+            </Tooltip>
+          )
+        })}
       </Box>
     </Box>
   )
@@ -842,6 +952,18 @@ export function App() {
   const [syncOpen, setSyncOpen] = useState(false)
   const [suggestingId, setSuggestingId] = useState<string | null>(null)
   const [aiRunning, setAiRunning] = useState(false)
+  const [tempoWorklogs, setTempoWorklogs] = useState<TempoWorklog[]>([])
+  const [tempoWorklogsLoading, setTempoWorklogsLoading] = useState(false)
+  const [tempoWorklogsError, setTempoWorklogsError] = useState<string | null>(null)
+  const [showTempoWorklogs, setShowTempoWorklogs] = useState(true)
+  const [filterMenuAnchor, setFilterMenuAnchor] = useState<HTMLElement | null>(null)
+  // Per-date cache so flipping back to an already-loaded day doesn't refetch.
+  const tempoWorklogCache = useRef<Map<string, TempoWorklog[]>>(new Map())
+  const [timelineWidth, setTimelineWidth] = useState<number>(() => readTimelineWidth())
+  const timelineWidthRef = useRef(timelineWidth)
+  useEffect(() => {
+    timelineWidthRef.current = timelineWidth
+  }, [timelineWidth])
 
   // Reveal the Tempo sync section automatically once a dry-run or push finishes
   // so the request preview / results are visible without a manual toggle.
@@ -958,6 +1080,56 @@ export function App() {
       cancelled = true
     }
   }, [date])
+
+  // Track the active date so async worklog fetches can tell whether their
+  // result still applies to what the user is looking at.
+  const dateRef = useRef(date)
+  useEffect(() => {
+    dateRef.current = date
+  }, [date])
+
+  const tempoConfigured = settings.connections.tempo.apiTokenSaved
+
+  const loadTempoWorklogs = useCallback(
+    async (targetDate: string, options?: { force?: boolean }) => {
+      if (!tempoConfigured) {
+        tempoWorklogCache.current.clear()
+        setTempoWorklogs([])
+        setTempoWorklogsError(null)
+        setTempoWorklogsLoading(false)
+        return
+      }
+      if (!options?.force) {
+        const cached = tempoWorklogCache.current.get(targetDate)
+        if (cached) {
+          setTempoWorklogs(cached)
+          setTempoWorklogsError(null)
+          return
+        }
+      }
+      setTempoWorklogsLoading(true)
+      setTempoWorklogsError(null)
+      try {
+        const worklogs = await api.getTempoWorklogs(targetDate)
+        tempoWorklogCache.current.set(targetDate, worklogs)
+        if (targetDate === dateRef.current) setTempoWorklogs(worklogs)
+      } catch (cause) {
+        if (targetDate === dateRef.current) {
+          setTempoWorklogs([])
+          setTempoWorklogsError((cause as Error).message)
+        }
+      } finally {
+        if (targetDate === dateRef.current) setTempoWorklogsLoading(false)
+      }
+    },
+    [tempoConfigured],
+  )
+
+  // Lazy, per-day read of confirmed Tempo worklogs — fired on navigation and
+  // once Tempo becomes configured. Never blocks the notebook render.
+  useEffect(() => {
+    void loadTempoWorklogs(date)
+  }, [date, loadTempoWorklogs])
 
   const scheduleSave = useCallback((nextDay: NotebookDay) => {
     if (saveTimer.current) clearTimeout(saveTimer.current)
@@ -1261,13 +1433,35 @@ export function App() {
       if (action === 'push') {
         const refreshed = await api.getDay(date)
         setDay(normalizeNotebookDay(refreshed))
+        // Newly-synced blocks now exist in Tempo — refresh the overlay.
+        void loadTempoWorklogs(date, { force: true })
       }
       setPushState({ mode: 'done', action, summary })
     } catch (cause) {
       setError(`${action === 'dry-run' ? 'Dry run' : 'Push'} failed: ${(cause as Error).message}`)
       setPushState({ mode: 'idle' })
     }
-  }, [date])
+  }, [date, loadTempoWorklogs])
+
+  const handleSplitPointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    const startX = event.clientX
+    const startWidth = timelineWidthRef.current
+
+    const onMove = (moveEvent: PointerEvent) => {
+      // Handle sits to the left of the timeline panel, so dragging left (a
+      // smaller clientX) widens the timeline.
+      setTimelineWidth(clampTimelineWidth(startWidth + (startX - moveEvent.clientX)))
+    }
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      writeTimelineWidth(timelineWidthRef.current)
+    }
+
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }, [])
 
   const nowMinute = day ? getCurrentMinute(day.date) : getCurrentMinute(date)
   const clockLabel = useMemo(() => {
@@ -1313,6 +1507,14 @@ export function App() {
     )
     return tickets.size
   }, [day])
+  const localWorklogIds = useMemo(() => {
+    const ids = new Set<number>()
+    for (const block of day?.blocks ?? []) {
+      if (typeof block.tempoWorklogId === 'number') ids.add(block.tempoWorklogId)
+    }
+    return ids
+  }, [day])
+  const visibleTempoWorklogs = showTempoWorklogs ? tempoWorklogs : []
   const errorCount = validationIssues.filter((issue) => issue.level === 'error').length
   const warningCount = validationIssues.filter((issue) => issue.level === 'warning').length
   const pushBlocked = errorCount > 0 || unsyncedBlocks === 0
@@ -1440,6 +1642,7 @@ export function App() {
                 <DatePicker
                   value={dayjs(date)}
                   onChange={(newValue) => setDate(newValue?.format('YYYY-MM-DD') || date)}
+                  format="DD/MM/YYYY"
                   slots={{ openPickerIcon: CalendarMonthIcon }}
                   slotProps={{ textField: { size: 'small', sx: { width: 200, bgcolor: 'background.paper', borderRadius: 1 } } }}
                 />
@@ -1590,12 +1793,12 @@ export function App() {
               <Stack direction={{ xs: 'column', md: 'row' }} sx={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
                 <Box
                   sx={{
-                    flex: 1.25,
+                    flex: 1,
+                    minWidth: 0,
                     p: 2,
                     overflowY: 'auto',
                     height: { xs: 'auto', md: '100%' },
                     minHeight: 0,
-                    borderRight: { xs: 'none', md: '1px solid' },
                     borderBottom: { xs: '1px solid', md: 'none' },
                     borderColor: 'divider',
                     background: `repeating-linear-gradient(180deg, ${theme.ledger.ruledPaperBase}, ${theme.ledger.ruledPaperBase} 27px, ${theme.ledger.ruledPaperLine} 27px, ${theme.ledger.ruledPaperLine} 28px)`,
@@ -1620,9 +1823,33 @@ export function App() {
                 </Box>
 
                 <Box
+                  role="separator"
+                  aria-orientation="vertical"
+                  aria-label="Resize notebook and timeline panels"
+                  onPointerDown={handleSplitPointerDown}
                   sx={{
-                    width: { xs: '100%', md: 380 },
-                    flexShrink: { xs: 0, md: 0 },
+                    display: { xs: 'none', md: 'flex' },
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                    width: '7px',
+                    cursor: 'col-resize',
+                    borderLeft: '1px solid',
+                    borderColor: 'divider',
+                    touchAction: 'none',
+                    '&:hover .split-grip': { opacity: 1 },
+                  }}
+                >
+                  <Box
+                    className="split-grip"
+                    sx={{ width: '3px', height: 36, borderRadius: 2, bgcolor: 'text.disabled', opacity: 0.45, transition: 'opacity 150ms' }}
+                  />
+                </Box>
+
+                <Box
+                  sx={{
+                    width: { xs: '100%', md: `${timelineWidth}px` },
+                    flexShrink: 0,
                     p: 2,
                     overflowY: 'auto',
                     height: { xs: 'auto', md: '100%' },
@@ -1631,17 +1858,59 @@ export function App() {
                   }}
                 >
                   <Stack spacing={1}>
-                    <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-                      Timeline
-                    </Typography>
+                    <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
+                      <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                        Timeline
+                      </Typography>
+                      <Tooltip title="Timeline filters" arrow>
+                        <IconButton
+                          size="small"
+                          aria-label="Timeline filters"
+                          onClick={(event) => setFilterMenuAnchor(event.currentTarget)}
+                        >
+                          <FilterAltIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      <Menu
+                        anchorEl={filterMenuAnchor}
+                        open={Boolean(filterMenuAnchor)}
+                        onClose={() => setFilterMenuAnchor(null)}
+                        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+                      >
+                        <Box sx={{ px: 2, py: 0.5 }}>
+                          <FormControlLabel
+                            control={
+                              <Switch
+                                size="small"
+                                checked={showTempoWorklogs}
+                                onChange={(event) => setShowTempoWorklogs(event.target.checked)}
+                              />
+                            }
+                            label="Show Tempo worklogs"
+                          />
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', maxWidth: 220 }}>
+                            {!tempoConfigured
+                              ? 'Connect Tempo in settings to load existing worklogs.'
+                              : tempoWorklogsLoading
+                                ? 'Loading worklogs from Tempo…'
+                                : tempoWorklogsError
+                                  ? `Couldn't load Tempo worklogs: ${tempoWorklogsError}`
+                                  : `${tempoWorklogs.length} confirmed worklog${tempoWorklogs.length === 1 ? '' : 's'} in Tempo for this day.`}
+                          </Typography>
+                        </Box>
+                      </Menu>
+                    </Stack>
                     <Typography variant="body2" color="text.secondary">
-                      Tap a closed block to reveal drag pins, gap absorb controls, and merge actions. Shared ticket IDs keep the same color and connect across the timeline.
+                      Tap a closed block to reveal drag pins, gap absorb controls, and merge actions. Shared ticket IDs keep the same color and connect across the timeline. Hatched bars on the right are worklogs already in Tempo.
                     </Typography>
                   </Stack>
                   <TimelinePanel
                     blocks={day.blocks.filter((block) => isPersistedBlock(block))}
                     nowMinute={nowMinute}
                     expandedId={expandedId}
+                    tempoWorklogs={visibleTempoWorklogs}
+                    localWorklogIds={localWorklogIds}
                     onToggleExpand={(id) => setExpandedId((current) => (current === id ? null : id))}
                     onAbsorbGap={handleAbsorbGap}
                     onMerge={handleMerge}

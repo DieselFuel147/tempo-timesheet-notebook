@@ -1,5 +1,5 @@
 import type { SaveSettingsInput, Settings } from './settings'
-import type { DryRunSummary, JiraProfile, NotebookDay, PushSummary } from './types'
+import type { DryRunSummary, JiraProfile, NotebookDay, PushSummary, TempoWorklog } from './types'
 
 // Wave 0 is the initial parity-oriented Tauri command set. Later waves can add
 // commands, but these names and payloads should stay stable while the current
@@ -37,6 +37,10 @@ export interface PushDayInput {
 }
 
 export interface DryRunDayInput {
+  date: string
+}
+
+export interface GetTempoWorklogsInput {
   date: string
 }
 
@@ -88,6 +92,7 @@ export const tauriCommandNames = {
   searchTickets: 'search_tickets',
   pushDay: 'push_day',
   dryRunDay: 'dry_run_day',
+  getTempoWorklogs: 'get_tempo_worklogs',
   suggestSummary: 'suggest_summary',
   aiStatus: 'ai_status',
 } as const
@@ -134,6 +139,10 @@ export interface TauriCommandContracts {
   dry_run_day: {
     input: DryRunDayInput
     output: DryRunSummary
+  }
+  get_tempo_worklogs: {
+    input: GetTempoWorklogsInput
+    output: TempoWorklog[]
   }
   suggest_summary: {
     input: SuggestSummaryInput

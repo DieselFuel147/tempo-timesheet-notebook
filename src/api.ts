@@ -1,6 +1,6 @@
 import { defaultSettings, mergeSettings, type SaveSettingsInput, type Settings } from '../shared/settings'
 import { tauriCommandNames, type SaveDayInput } from '../shared/tauri-contracts'
-import type { NotebookDay } from '../shared/types'
+import type { NotebookDay, TempoWorklog } from '../shared/types'
 import { invokeCommand } from './api/desktopApi'
 
 export type NotebookDaySave = SaveDayInput
@@ -42,6 +42,8 @@ export const api = {
   dates: () => invokeCommand(tauriCommandNames.listDates),
   pushDay: (date: string) => invokeCommand(tauriCommandNames.pushDay, { date }),
   dryRunDay: (date: string) => invokeCommand(tauriCommandNames.dryRunDay, { date }),
+  getTempoWorklogs: (date: string) =>
+    invokeCommand(tauriCommandNames.getTempoWorklogs, { date }).then((worklogs) => worklogs as TempoWorklog[]),
   // Local, on-device AI. Desktop (Tauri) only.
   suggestSummary: (text: string) => invokeCommand(tauriCommandNames.suggestSummary, { text }),
   aiStatus: () => invokeCommand(tauriCommandNames.aiStatus),

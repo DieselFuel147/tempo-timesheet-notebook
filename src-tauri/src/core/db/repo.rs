@@ -227,6 +227,24 @@ impl Repository {
             .map_err(|error| db_error(format!("Failed to load cached issue {key}: {error}")))
     }
 
+    pub fn get_cached_issue_by_id(&self, issue_id: &str) -> Result<Option<CachedIssue>, AppError> {
+        self.connection
+            .query_row(
+                "SELECT key, issue_id, summary, cached_at FROM issue_cache WHERE issue_id = ?1",
+                [issue_id],
+                |row| {
+                    Ok(CachedIssue {
+                        key: row.get(0)?,
+                        issue_id: row.get(1)?,
+                        summary: row.get(2)?,
+                        cached_at: row.get(3)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(|error| db_error(format!("Failed to load cached issue by id {issue_id}: {error}")))
+    }
+
     pub fn cache_issue(&mut self, key: &str, issue_id: &str, summary: &str) -> Result<(), AppError> {
         self.connection
             .execute(
@@ -365,6 +383,25 @@ mod tests {
             .expect("cached issue present");
         assert_eq!(cached.issue_id, "1002");
         assert_eq!(cached.summary, "Second");
+    }
+
+    #[test]
+    fn issue_cache_reverse_lookup_by_id() {
+        let mut repo = Repository::in_memory().expect("repo");
+
+        repo.cache_issue("ABC-123", "1001", "First").expect("cache issue");
+
+        let cached = repo
+            .get_cached_issue_by_id("1001")
+            .expect("get cached issue by id")
+            .expect("cached issue present");
+        assert_eq!(cached.key, "ABC-123");
+        assert_eq!(cached.summary, "First");
+
+        assert!(repo
+            .get_cached_issue_by_id("9999")
+            .expect("query missing id")
+            .is_none());
     }
 
     #[test]

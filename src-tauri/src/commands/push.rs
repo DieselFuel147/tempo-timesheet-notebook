@@ -10,7 +10,7 @@ use crate::core::tempo::TempoClient;
 use crate::error::AppError;
 use crate::state::{
     AppState, DryRunSummary, JiraIssueRef, JiraProfile, NotebookDay, PlannedRequest,
-    PushSummary, Settings, WorklogInput,
+    PushSummary, Settings, TempoWorklog, WorklogInput,
 };
 
 #[tauri::command]
@@ -18,6 +18,64 @@ pub async fn push_day(date: String, state: State<'_, AppState>) -> Result<PushSu
     let clients = IntegrationClients::from_state(state.inner())?;
     let repo = StateBackedPushRepo::new(state.inner());
     push::push_day(&date, &clients.jira, &clients.tempo, &repo).await
+}
+
+#[tauri::command]
+pub async fn get_tempo_worklogs(
+    date: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<TempoWorklog>, AppError> {
+    let clients = IntegrationClients::from_state(state.inner())?;
+    let me = clients.jira.myself().await?;
+    let entries = clients
+        .tempo
+        .list_worklogs_for_user(&me.account_id, &date, &date)
+        .await?;
+
+    let mut worklogs = Vec::with_capacity(entries.len());
+    for entry in entries {
+        let issue_key = resolve_issue_key(entry.issue_id, &clients.jira, state.inner()).await;
+        worklogs.push(TempoWorklog {
+            tempo_worklog_id: entry.tempo_worklog_id,
+            issue_id: entry.issue_id,
+            issue_key,
+            time_spent_seconds: entry.time_spent_seconds,
+            start_date: entry.start_date,
+            start_time: entry.start_time,
+            description: entry.description,
+        });
+    }
+
+    Ok(worklogs)
+}
+
+/// Resolve a numeric issue id to its human-facing key, preferring the local
+/// issue cache and falling back to a Jira lookup. Never fails the whole fetch:
+/// on any error the stringified numeric id is returned so the worklog still
+/// shows up.
+async fn resolve_issue_key(issue_id: i64, jira: &JiraClient, state: &AppState) -> String {
+    let id_string = issue_id.to_string();
+
+    let cached = {
+        let repo = match state.repo.lock() {
+            Ok(repo) => repo,
+            Err(_) => return id_string,
+        };
+        repo.get_cached_issue_by_id(&id_string).ok().flatten()
+    };
+    if let Some(cached) = cached {
+        return cached.key;
+    }
+
+    match jira.resolve_issue_by_id(issue_id).await {
+        Ok(issue) => {
+            if let Ok(mut repo) = state.repo.lock() {
+                let _ = repo.cache_issue(&issue.key, &issue.id, &issue.summary);
+            }
+            issue.key
+        }
+        Err(_) => id_string,
+    }
 }
 
 #[tauri::command]

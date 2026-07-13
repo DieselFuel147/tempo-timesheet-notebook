@@ -215,6 +215,22 @@ pub struct WorklogInput {
     pub author_account_id: String,
 }
 
+/// A confirmed worklog read back from Tempo for a given day. The Tempo v4
+/// worklog object only carries the numeric issue id, so `issue_key` is resolved
+/// (via the Jira issue cache) before this reaches the UI; it falls back to the
+/// stringified numeric id when a key cannot be resolved.
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TempoWorklog {
+    pub tempo_worklog_id: i64,
+    pub issue_id: i64,
+    pub issue_key: String,
+    pub time_spent_seconds: i64,
+    pub start_date: String,
+    pub start_time: String,
+    pub description: String,
+}
+
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PlannedWorklog {

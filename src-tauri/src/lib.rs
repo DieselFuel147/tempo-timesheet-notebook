@@ -26,6 +26,7 @@ pub fn run() {
             commands::settings::save_settings,
             commands::push::push_day,
             commands::push::dry_run_day,
+            commands::push::get_tempo_worklogs,
             commands::ai::suggest_summary,
             commands::ai::ai_status,
         ])

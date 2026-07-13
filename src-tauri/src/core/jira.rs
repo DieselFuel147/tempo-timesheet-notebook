@@ -57,6 +57,13 @@ impl JiraClient {
         })
     }
 
+    /// Resolve an issue by its numeric id. Jira's issue endpoint accepts either
+    /// a key or an id in the path and returns both, so this reuses the same
+    /// lookup as `resolve_issue`.
+    pub async fn resolve_issue_by_id(&self, issue_id: i64) -> Result<JiraIssueRef, AppError> {
+        self.resolve_issue(&issue_id.to_string()).await
+    }
+
     pub async fn pick_issues(&self, query: &str) -> Result<Vec<TicketSuggestion>, AppError> {
         let mut url = self.base_url.join("/rest/api/3/issue/picker")?;
         url.query_pairs_mut()

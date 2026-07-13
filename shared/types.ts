@@ -91,3 +91,18 @@ export interface DryRunSummary {
   skipped: number
   blocked: string[]
 }
+
+/**
+ * A confirmed worklog read back from Tempo for a given day. Tempo's v4 worklog
+ * only carries the numeric issue id, so `issueKey` is resolved server-side (via
+ * the Jira issue cache) and falls back to the stringified id when unresolved.
+ */
+export interface TempoWorklog {
+  tempoWorklogId: number
+  issueId: number
+  issueKey: string
+  timeSpentSeconds: number
+  startDate: string // YYYY-MM-DD
+  startTime: string // HH:mm:ss
+  description: string
+}
