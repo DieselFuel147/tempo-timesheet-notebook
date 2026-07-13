@@ -234,6 +234,23 @@ export function Settings({ settings, onSaved, onClose, appearance, onAppearanceC
             placeholder="name@company.com"
           />
 
+          <Alert severity="info" variant="outlined" icon={false} sx={{ py: 0.75 }}>
+            <Typography variant="caption" component="div" sx={{ fontWeight: 600, mb: 0.5 }}>
+              Which Jira token & permissions
+            </Typography>
+            <Typography variant="caption" component="div" color="text.secondary">
+              Create a plain (unscoped) token at{' '}
+              <Box component="code" sx={{ fontFamily: 'monospace' }}>
+                id.atlassian.com/manage-profile/security/api-tokens
+              </Box>{' '}
+              using <strong>Create API token</strong> - not the “with scopes” option, which the app
+              can’t use yet. The app signs in as you and only <strong>reads</strong>: your profile,
+              issue summaries, and ticket search. It never writes to Jira, so the account only needs{' '}
+              <strong>Browse&nbsp;Projects</strong> permission on the projects you log against - no
+              admin, edit, or worklog permissions.
+            </Typography>
+          </Alert>
+
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ alignItems: { xs: 'stretch', sm: 'flex-start' } }}>
             <TextField
               label="Jira API token"
@@ -266,6 +283,18 @@ export function Settings({ settings, onSaved, onClose, appearance, onAppearanceC
             placeholder="https://api.tempo.io/4"
             helperText="API root used for dry run and push requests."
           />
+
+          <Alert severity="info" variant="outlined" icon={false} sx={{ py: 0.75 }}>
+            <Typography variant="caption" component="div" sx={{ fontWeight: 600, mb: 0.5 }}>
+              Which Tempo scopes
+            </Typography>
+            <Typography variant="caption" component="div" color="text.secondary">
+              Create the token under <strong>Tempo → Settings → DATA ACCESS → API integration → New Token → Custom Access</strong> and grant
+              only <strong>Worklogs Scope&nbsp;· View and Manage</strong>. Leave every other scope off - Accounts,
+              Activities, Approvals, Audit, papertrail, Periods, Plans, Projects, Schemes, Teams. The
+              app only creates and reads worklogs; it never reads or manages anything else in Tempo.
+            </Typography>
+          </Alert>
 
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ alignItems: { xs: 'stretch', sm: 'flex-start' } }}>
             <TextField
