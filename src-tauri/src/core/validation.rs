@@ -2,7 +2,8 @@ use std::sync::OnceLock;
 
 use regex::Regex;
 
-use crate::state::Entry;
+use crate::core::notebook::notebook_block_summary;
+use crate::state::{Entry, NotebookBlock};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IssueLevel {
@@ -233,6 +234,210 @@ pub fn validate_day(entries: &[Entry], config: &ValidationConfig) -> Vec<Validat
             message: format!("{:.2}h logged (over {}h).", total_hours, config.max_day_hours),
             entry_id: None,
         });
+    }
+
+    issues
+}
+
+pub fn validate_notebook_day(blocks: &[NotebookBlock], config: &ValidationConfig) -> Vec<ValidationIssue> {
+    let mut issues = Vec::new();
+    for block in blocks {
+        issues.extend(validate_notebook_block(block, config));
+    }
+
+    let mut timed = blocks
+        .iter()
+        .filter_map(|block| {
+            let start = block.start_minute?;
+            let end = block.end_minute?;
+            if end > start {
+                Some((block, start, end))
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    timed.sort_by_key(|(_, start, _)| *start);
+
+    for pair in timed.windows(2) {
+        let (left_block, _, left_end) = pair[0];
+        let (right_block, right_start, _) = pair[1];
+        if left_end > right_start {
+            issues.push(ValidationIssue {
+                level: IssueLevel::Error,
+                code: String::from("OVERLAP"),
+                message: format!(
+                    "Overlaps: {}-{} and {}-{}.",
+                    left_block.start_minute.unwrap_or_default(),
+                    left_block.end_minute.unwrap_or_default(),
+                    right_block.start_minute.unwrap_or_default(),
+                    right_block.end_minute.unwrap_or_default()
+                ),
+                entry_id: Some(right_block.id.clone()),
+            });
+        }
+    }
+
+    let total_hours = timed
+        .iter()
+        .map(|(_, start, end)| f64::from(end - start))
+        .sum::<f64>()
+        / 60.0;
+    if !timed.is_empty() && total_hours < config.min_day_hours {
+        issues.push(ValidationIssue {
+            level: IssueLevel::Warning,
+            code: String::from("DAY_LOW"),
+            message: format!(
+                "Only {:.2}h logged (under {}h).",
+                total_hours, config.min_day_hours
+            ),
+            entry_id: None,
+        });
+    }
+    if total_hours > config.max_day_hours {
+        issues.push(ValidationIssue {
+            level: IssueLevel::Warning,
+            code: String::from("DAY_HIGH"),
+            message: format!("{:.2}h logged (over {}h).", total_hours, config.max_day_hours),
+            entry_id: None,
+        });
+    }
+
+    issues
+}
+
+pub fn validate_notebook_block(block: &NotebookBlock, config: &ValidationConfig) -> Vec<ValidationIssue> {
+    let mut issues = Vec::new();
+    let mut add = |level: IssueLevel, code: &str, message: String| {
+        issues.push(ValidationIssue {
+            level,
+            code: code.to_string(),
+            message,
+            entry_id: Some(block.id.clone()),
+        });
+    };
+
+    let key = block.ticket_id.trim();
+    if key.is_empty() {
+        add(
+            IssueLevel::Error,
+            "INVALID_TICKET",
+            "Ticket is required (e.g. ABC-123).".into(),
+        );
+    } else if !config.ticket_pattern.is_match(key) {
+        add(
+            IssueLevel::Error,
+            "INVALID_TICKET",
+            format!(
+                "\"{}\" is not a valid ticket key (expected e.g. ABC-123).",
+                block.ticket_id
+            ),
+        );
+    }
+
+    if block.start_minute.is_none() && block.end_minute.is_some() {
+        add(
+            IssueLevel::Error,
+            "INVALID_START",
+            "Block end time cannot exist without a start time.".into(),
+        );
+    }
+
+    if let Some(start) = block.start_minute {
+        if !(0..=1439).contains(&start) {
+            add(
+                IssueLevel::Error,
+                "INVALID_START",
+                format!("Start minute {} is out of range.", start),
+            );
+        }
+        if start < config.workday_start_min {
+            add(
+                IssueLevel::Warning,
+                "EARLY",
+                format!("Starts before normal hours ({}).", fmt_min(config.workday_start_min)),
+            );
+        }
+    }
+
+    if let Some(end) = block.end_minute {
+        if !(0..=1440).contains(&end) {
+            add(
+                IssueLevel::Error,
+                "INVALID_END",
+                format!("End minute {} is out of range.", end),
+            );
+        }
+        if end > config.workday_end_min {
+            add(
+                IssueLevel::Warning,
+                "LATE",
+                format!("Ends after normal hours ({}).", fmt_min(config.workday_end_min)),
+            );
+        }
+    }
+
+    let duration = block.end_minute.zip(block.start_minute).map(|(end, start)| end - start);
+    if block.closed {
+        if block.start_minute.is_none() || block.end_minute.is_none() {
+            add(
+                IssueLevel::Error,
+                "INCOMPLETE_BLOCK",
+                "Closed blocks must have both start and end times.".into(),
+            );
+        } else if let Some(duration) = duration {
+            if duration <= 0 {
+                add(
+                    IssueLevel::Error,
+                    "BAD_RANGE",
+                    format!(
+                        "End ({}) must be after start ({}).",
+                        block.end_minute.unwrap_or_default(),
+                        block.start_minute.unwrap_or_default()
+                    ),
+                );
+            } else {
+                if duration < config.min_entry_minutes {
+                    add(
+                        IssueLevel::Warning,
+                        "TOO_SHORT",
+                        format!("Only {} min - shorter than {} min.", duration, config.min_entry_minutes),
+                    );
+                }
+                if f64::from(duration) > config.max_entry_hours * 60.0 {
+                    add(
+                        IssueLevel::Warning,
+                        "TOO_LONG",
+                        format!(
+                            "{:.2}h in one block - over {}h.",
+                            f64::from(duration) / 60.0,
+                            config.max_entry_hours
+                        ),
+                    );
+                }
+            }
+        }
+    } else if block.end_minute.is_some() {
+        add(
+            IssueLevel::Error,
+            "OPEN_BLOCK_HAS_END",
+            "Open blocks cannot have an end time.".into(),
+        );
+    }
+
+    if block.text.trim().is_empty() {
+        add(
+            IssueLevel::Warning,
+            "NO_TEXT",
+            "No note text - add detail for what you did.".into(),
+        );
+    }
+    if notebook_block_summary(block).trim().is_empty() {
+        add(
+            IssueLevel::Warning,
+            "NO_SUMMARY",
+            "No summary - add a short note of what you did.".into(),
+        );
     }
 
     issues

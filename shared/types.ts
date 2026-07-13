@@ -71,21 +71,21 @@ export interface WorklogInput {
   authorAccountId: string
 }
 
-/** Outcome of pushing a single entry to Tempo. */
-export interface EntryPushResult {
-  entryId: string
-  ticketKey: string
+/** Outcome of pushing a single notebook block to Tempo. */
+export interface BlockPushResult {
+  blockId: string
+  ticketId: string
   ok: boolean
   tempoWorklogId?: number
   error?: string
 }
 
-/** Outcome of pushing a whole day to Tempo. */
+/** Outcome of pushing a whole notebook day to Tempo. */
 export interface PushSummary {
-  results: EntryPushResult[]
+  results: BlockPushResult[]
   synced: number
   failed: number
-  skipped: number // already-synced entries left untouched (idempotency)
+  skipped: number // already-synced blocks left untouched (idempotency)
   blocked: string[] // validation errors that stopped the whole push
 }
 
@@ -98,8 +98,8 @@ export interface PlannedRequest {
 }
 
 export interface PlannedWorklog {
-  entryId: string
-  ticketKey: string
+  blockId: string
+  ticketId: string
   issueId: number
   request: PlannedRequest
 }

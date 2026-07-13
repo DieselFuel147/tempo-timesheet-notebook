@@ -9,8 +9,8 @@ use crate::core::push::{self, JiraPushClient, PushRepository, TempoPushClient};
 use crate::core::tempo::TempoClient;
 use crate::error::AppError;
 use crate::state::{
-    AppState, Day, DryRunSummary, JiraIssueRef, JiraProfile, PlannedRequest, PushSummary,
-    Settings, WorklogInput,
+    AppState, DryRunSummary, JiraIssueRef, JiraProfile, NotebookDay, PlannedRequest,
+    PushSummary, Settings, WorklogInput,
 };
 
 #[tauri::command]
@@ -53,14 +53,14 @@ impl<'a> StateBackedPushRepo<'a> {
 
 #[async_trait]
 impl PushRepository for StateBackedPushRepo<'_> {
-    async fn get_day(&self, date: &str) -> Result<Day, AppError> {
+    async fn get_day(&self, date: &str) -> Result<NotebookDay, AppError> {
         let repo = self
             .state
             .repo
             .lock()
             .map_err(|_| AppError::internal("Failed to lock repository"))?;
 
-        repo.get_day(date)
+        repo.get_notebook_day(date)
     }
 
     async fn mark_synced(&self, id: &str, tempo_worklog_id: i64) -> Result<(), AppError> {

@@ -186,9 +186,9 @@ pub struct SecretUpdates {
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct EntryPushResult {
-    pub entry_id: String,
-    pub ticket_key: String,
+pub struct BlockPushResult {
+    pub block_id: String,
+    pub ticket_id: String,
     pub ok: bool,
     pub tempo_worklog_id: Option<i64>,
     pub error: Option<String>,
@@ -196,7 +196,7 @@ pub struct EntryPushResult {
 
 #[derive(Clone, Serialize)]
 pub struct PushSummary {
-    pub results: Vec<EntryPushResult>,
+    pub results: Vec<BlockPushResult>,
     pub synced: usize,
     pub failed: usize,
     pub skipped: usize,
@@ -225,8 +225,8 @@ pub struct WorklogInput {
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PlannedWorklog {
-    pub entry_id: String,
-    pub ticket_key: String,
+    pub block_id: String,
+    pub ticket_id: String,
     pub issue_id: i64,
     pub request: PlannedRequest,
 }

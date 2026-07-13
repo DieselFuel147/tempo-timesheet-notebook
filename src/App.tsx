@@ -10,9 +10,12 @@ import CheckIcon from '@mui/icons-material/Check'
 import UndoIcon from '@mui/icons-material/Undo'
 import LinkIcon from '@mui/icons-material/Link'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined'
-import type { JiraProfile, NotebookBlock, NotebookDay } from '../shared/types'
+import PlayArrowIcon from '@mui/icons-material/PlayArrow'
+import UploadIcon from '@mui/icons-material/Upload'
+import SyncIcon from '@mui/icons-material/Sync'
+import type { DryRunSummary, JiraProfile, NotebookBlock, NotebookDay, PushSummary } from '../shared/types'
 import { defaultSettings, type Settings as AppSettings } from '../shared/settings'
-import { notebookBlockSummary } from '../shared/notebook'
+import { isPersistedNotebookBlock, notebookBlockSummary } from '../shared/notebook'
 import { validateNotebookDay, type ValidationIssue } from '../shared/validation'
 import { api } from './api'
 import { addDays, formatHours, prettyDate, todayISO } from './dateutil'
@@ -45,6 +48,11 @@ const MIN_BLOCK_HEIGHT = 42
 const MIN_BLOCK_DURATION_MINUTES = 1
 const COLORS = ['#5b86f7', '#8a6bf0', '#39b88f', '#e0a13a', '#d46b91']
 const DEBUG_TIME_SCALE = Number(import.meta.env.VITE_NOTEBOOK_TIME_SCALE ?? '1')
+
+type PushState =
+  | { mode: 'idle' }
+  | { mode: 'running'; action: 'dry-run' | 'push' }
+  | { mode: 'done'; action: 'dry-run' | 'push'; summary: DryRunSummary | PushSummary }
 
 interface DayTimeAnchor {
   date: string
@@ -92,6 +100,16 @@ function markBlockDirty(block: NotebookBlock): NotebookBlock {
     tempoWorklogId: null,
     syncedAt: null,
   }
+}
+
+function blockHasPushRelevantChanges(previous: NotebookBlock, next: NotebookBlock): boolean {
+  return (
+    previous.startMinute !== next.startMinute ||
+    previous.endMinute !== next.endMinute ||
+    previous.closed !== next.closed ||
+    previous.ticketId !== next.ticketId ||
+    notebookBlockSummary(previous) !== notebookBlockSummary(next)
+  )
 }
 
 function normalizeNotebookDay(day: NotebookDay): NotebookDay {
@@ -160,6 +178,16 @@ function isPersistedBlock(block: NotebookBlock): boolean {
   return block.startMinute !== null || block.text.trim().length > 0 || block.ticketId.trim().length > 0
 }
 
+function isPushableBlock(block: NotebookBlock): boolean {
+  return block.closed && block.startMinute !== null && block.endMinute !== null && notebookBlockSummary(block).trim().length > 0
+}
+
+function blockSyncLabel(block: NotebookBlock): { label: string; color: 'default' | 'success' | 'warning' } | null {
+  if (!isPersistedNotebookBlock(block) || !isPushableBlock(block)) return null
+  if (block.tempoWorklogId) return { label: 'synced to Tempo', color: 'success' }
+  return { label: 'ready to sync', color: 'warning' }
+}
+
 function buildLegacyProfileLabel(profile: JiraProfile | null): string {
   return profile ? `${profile.displayName} · ${profile.timeZone}` : 'not connected to Jira'
 }
@@ -226,6 +254,7 @@ const NotebookEditorPanel = memo(function NotebookEditorPanel({
           const isReopenable = block.id === activeReopenableId
           const isLive = block.id === activeStartedId
           const summary = notebookBlockSummary(block)
+          const syncChip = blockSyncLabel(block)
 
           return (
             <Paper
@@ -262,8 +291,9 @@ const NotebookEditorPanel = memo(function NotebookEditorPanel({
                           : block.closed
                             ? 'closed'
                             : 'logging now'
-                      }
+                        }
                     />
+                    {syncChip && <Chip size="small" color={syncChip.color} variant="outlined" label={syncChip.label} />}
                     {isReopenable && (
                       <Chip size="small" icon={<UndoIcon />} label="tap to continue" variant="outlined" />
                     )}
@@ -666,6 +696,7 @@ export function App() {
   const [summaryEditorId, setSummaryEditorId] = useState<string | null>(null)
   const [summaryDraft, setSummaryDraft] = useState('')
   const [timelineTick, setTimelineTick] = useState(0)
+  const [pushState, setPushState] = useState<PushState>({ mode: 'idle' })
 
   const dayRef = useRef<NotebookDay | null>(null)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -719,6 +750,7 @@ export function App() {
         setExpandedId(null)
         setSummaryEditorId(null)
         setSummaryDraft('')
+        setPushState({ mode: 'idle' })
       })
       .catch((cause) => {
         if (cancelled) return
@@ -730,6 +762,7 @@ export function App() {
           wallClockStartMs: Date.now(),
           minuteBase: wallClockMinuteForDate(date),
         }
+        setPushState({ mode: 'idle' })
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -792,6 +825,11 @@ export function App() {
     return blocks.map((block) => (block.id === id ? mutate(block) : block))
   }, [])
 
+  const patchBlock = useCallback((block: NotebookBlock, patch: Partial<NotebookBlock>) => {
+    const nextBlock = { ...block, ...patch }
+    return blockHasPushRelevantChanges(block, nextBlock) ? markBlockDirty(nextBlock) : nextBlock
+  }, [])
+
   const activeReopenableId = useMemo(() => {
     if (!day || day.blocks.length < 2) return null
     const previous = day.blocks[day.blocks.length - 2]
@@ -836,36 +874,33 @@ export function App() {
       const activeIndex = blocks.findIndex((candidate) => candidate.startMinute !== null && !candidate.closed)
 
       if (reopenableId === id) {
-        blocks[index] = {
-          ...block,
+        blocks[index] = patchBlock(block, {
           text: value,
           closed: false,
           endMinute: null,
           summaryOverride: block.summaryOverride,
-        }
+        })
         return { date: currentDay.date, blocks }
       }
 
       if (isUnstartedDraft) {
         if (activeIndex !== -1) {
-          blocks[activeIndex] = {
-            ...blocks[activeIndex],
+          blocks[activeIndex] = patchBlock(blocks[activeIndex], {
             closed: true,
             endMinute: Math.max(blocks[activeIndex].startMinute ?? nowMinute, nowMinute),
-          }
+          })
         }
-        blocks[index] = {
-          ...block,
+        blocks[index] = patchBlock(block, {
           startMinute: nowMinute,
           endMinute: null,
           closed: false,
           text: value,
-        }
+        })
         if (isTrailingBlank) blocks.push(createBlankBlock(currentDay.date))
         return { date: currentDay.date, blocks }
       }
 
-      blocks[index] = { ...block, text: value }
+      blocks[index] = patchBlock(block, { text: value })
       return { date: currentDay.date, blocks }
     })
 
@@ -873,14 +908,14 @@ export function App() {
       eventTarget.style.height = 'auto'
       eventTarget.style.height = `${eventTarget.scrollHeight}px`
     }
-  }, [commitDay, getCurrentMinute])
+  }, [commitDay, getCurrentMinute, patchBlock])
 
   const handleTicketChange = useCallback((id: string, ticketId: string) => {
     commitDay((currentDay) => ({
       date: currentDay.date,
-      blocks: currentDay.blocks.map((block) => (block.id === id ? { ...block, ticketId } : block)),
+      blocks: currentDay.blocks.map((block) => (block.id === id ? patchBlock(block, { ticketId }) : block)),
     }))
-  }, [commitDay])
+  }, [commitDay, patchBlock])
 
   const handleDeleteBlock = useCallback((id: string) => {
     commitDay((currentDay) => ({
@@ -1019,12 +1054,30 @@ export function App() {
     commitDay((currentDay) => ({
       date: currentDay.date,
       blocks: currentDay.blocks.map((block) =>
-        block.id === summaryEditorId ? { ...block, summaryOverride: summary.length > 0 ? summary : null } : block,
+        block.id === summaryEditorId
+          ? patchBlock(block, { summaryOverride: summary.length > 0 ? summary : null })
+          : block,
       ),
     }))
     setSummaryEditorId(null)
     setSummaryDraft('')
-  }, [commitDay, summaryDraft, summaryEditorId])
+  }, [commitDay, patchBlock, summaryDraft, summaryEditorId])
+
+  const runPushAction = useCallback(async (action: 'dry-run' | 'push') => {
+    setPushState({ mode: 'running', action })
+    setError(null)
+    try {
+      const summary = action === 'dry-run' ? await api.dryRunDay(date) : await api.pushDay(date)
+      if (action === 'push') {
+        const refreshed = await api.getDay(date)
+        setDay(normalizeNotebookDay(refreshed))
+      }
+      setPushState({ mode: 'done', action, summary })
+    } catch (cause) {
+      setError(`${action === 'dry-run' ? 'Dry run' : 'Push'} failed: ${(cause as Error).message}`)
+      setPushState({ mode: 'idle' })
+    }
+  }, [date])
 
   const nowMinute = day ? getCurrentMinute(day.date) : getCurrentMinute(date)
   const validationIssues = useMemo(
@@ -1050,6 +1103,9 @@ export function App() {
     [day, nowMinute, timelineTick],
   )
   const trackedCount = useMemo(() => (day?.blocks ?? []).filter(isPersistedBlock).length, [day])
+  const pushableBlocks = useMemo(() => (day?.blocks ?? []).filter(isPushableBlock), [day])
+  const syncedBlocks = useMemo(() => pushableBlocks.filter((block) => block.tempoWorklogId).length, [pushableBlocks])
+  const unsyncedBlocks = useMemo(() => pushableBlocks.filter((block) => !block.tempoWorklogId).length, [pushableBlocks])
   const ticketCount = useMemo(() => {
     const tickets = new Set(
       (day?.blocks ?? []).map((block) => block.ticketId.trim()).filter((ticketId) => ticketId.length > 0),
@@ -1058,6 +1114,7 @@ export function App() {
   }, [day])
   const errorCount = validationIssues.filter((issue) => issue.level === 'error').length
   const warningCount = validationIssues.filter((issue) => issue.level === 'warning').length
+  const pushBlocked = errorCount > 0 || unsyncedBlocks === 0
 
   if (showSettings) {
     return (
@@ -1122,10 +1179,120 @@ export function App() {
                 <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
                   <Chip label={`${trackedCount} blocks`} variant="outlined" />
                   <Chip label={`${ticketCount} tickets`} variant="outlined" />
+                  <Chip label={`${unsyncedBlocks} ready to sync`} color={unsyncedBlocks > 0 ? 'warning' : 'default'} variant="outlined" />
+                  <Chip label={`${syncedBlocks} synced`} color={syncedBlocks > 0 ? 'success' : 'default'} variant="outlined" />
                   <Chip label={`${formatHours(Math.round(totalMinutes))} tracked`} color="primary" variant="outlined" />
                   <Chip label={`${errorCount} errors`} color={errorCount > 0 ? 'error' : 'default'} variant="outlined" />
                   <Chip label={`${warningCount} warnings`} color={warningCount > 0 ? 'warning' : 'default'} variant="outlined" />
                 </Stack>
+              </Stack>
+            </Paper>
+
+            <Paper variant="outlined" sx={{ p: 1.5 }}>
+              <Stack spacing={1.25}>
+                <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25} sx={{ justifyContent: 'space-between', alignItems: { md: 'center' } }}>
+                  <Box>
+                    <Typography variant="h6">Tempo sync</Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Closed notebook blocks with valid tickets are the push candidates. Editing synced timing, ticket, or summary marks that block unsynced again.
+                    </Typography>
+                  </Box>
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                    <Button
+                      variant="outlined"
+                      startIcon={<PlayArrowIcon />}
+                      onClick={() => void runPushAction('dry-run')}
+                      disabled={pushState.mode === 'running' || pushableBlocks.length === 0}
+                    >
+                      {pushState.mode === 'running' && pushState.action === 'dry-run' ? 'Running dry run…' : 'Dry run Tempo push'}
+                    </Button>
+                    <Button
+                      variant="contained"
+                      startIcon={pushState.mode === 'running' && pushState.action === 'push' ? <SyncIcon /> : <UploadIcon />}
+                      onClick={() => void runPushAction('push')}
+                      disabled={pushState.mode === 'running' || pushBlocked}
+                    >
+                      {pushState.mode === 'running' && pushState.action === 'push' ? 'Pushing…' : 'Push unsynced blocks'}
+                    </Button>
+                  </Stack>
+                </Stack>
+
+                {errorCount > 0 && (
+                  <Alert severity="error">Resolve validation errors before pushing notebook blocks to Tempo.</Alert>
+                )}
+
+                {pushableBlocks.length === 0 && (
+                  <Alert severity="info">No closed notebook blocks are ready for Tempo yet.</Alert>
+                )}
+
+                {pushState.mode === 'done' && 'dryRun' in pushState.summary && (
+                  <Stack spacing={1}>
+                    <Alert severity={pushState.summary.blocked.length > 0 ? 'error' : 'info'}>
+                      {pushState.summary.blocked.length > 0
+                        ? `Dry run blocked by ${pushState.summary.blocked.length} validation error${pushState.summary.blocked.length === 1 ? '' : 's'}.`
+                        : `Dry run prepared ${pushState.summary.planned.length} worklog request${pushState.summary.planned.length === 1 ? '' : 's'} and would skip ${pushState.summary.skipped} already-synced block${pushState.summary.skipped === 1 ? '' : 's'}.`}
+                    </Alert>
+                    {pushState.summary.blocked.length > 0 && (
+                      <Stack spacing={0.5}>
+                        {pushState.summary.blocked.map((message, index) => (
+                          <Typography key={`dry-blocked-${index}`} variant="caption" color="error.main">
+                            {message}
+                          </Typography>
+                        ))}
+                      </Stack>
+                    )}
+                    {pushState.summary.planned.length > 0 && (
+                      <Stack spacing={1}>
+                        {pushState.summary.planned.map((planned) => {
+                          const matchingBlock = day?.blocks.find((block) => block.id === planned.blockId)
+                          return (
+                            <Paper key={planned.blockId} variant="outlined" sx={{ p: 1.25, bgcolor: 'rgba(255,255,255,0.02)' }}>
+                              <Stack spacing={0.5}>
+                                <Typography variant="subtitle2">
+                                  {planned.ticketId} · {matchingBlock ? notebookBlockSummary(matchingBlock) : 'Notebook block'}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                  POST {planned.request.url}
+                                </Typography>
+                                <Typography variant="caption" sx={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
+                                  {JSON.stringify(planned.request.body)}
+                                </Typography>
+                              </Stack>
+                            </Paper>
+                          )
+                        })}
+                      </Stack>
+                    )}
+                  </Stack>
+                )}
+
+                {pushState.mode === 'done' && !('dryRun' in pushState.summary) && (
+                  <Stack spacing={1}>
+                    <Alert severity={pushState.summary.failed > 0 || pushState.summary.blocked.length > 0 ? 'warning' : 'success'}>
+                      {pushState.summary.blocked.length > 0
+                        ? `Push blocked by ${pushState.summary.blocked.length} validation error${pushState.summary.blocked.length === 1 ? '' : 's'}.`
+                        : `Pushed ${pushState.summary.synced} block${pushState.summary.synced === 1 ? '' : 's'}, failed ${pushState.summary.failed}, skipped ${pushState.summary.skipped} already-synced block${pushState.summary.skipped === 1 ? '' : 's'}.`}
+                    </Alert>
+                    {pushState.summary.blocked.length > 0 && (
+                      <Stack spacing={0.5}>
+                        {pushState.summary.blocked.map((message, index) => (
+                          <Typography key={`push-blocked-${index}`} variant="caption" color="error.main">
+                            {message}
+                          </Typography>
+                        ))}
+                      </Stack>
+                    )}
+                    {pushState.summary.results.length > 0 && (
+                      <Stack spacing={0.75}>
+                        {pushState.summary.results.map((result) => (
+                          <Typography key={result.blockId} variant="caption" sx={{ color: result.ok ? 'success.main' : 'warning.main' }}>
+                            {result.ticketId}: {result.ok ? `synced as worklog ${result.tempoWorklogId}` : result.error ?? 'failed'}
+                          </Typography>
+                        ))}
+                      </Stack>
+                    )}
+                  </Stack>
+                )}
               </Stack>
             </Paper>
 

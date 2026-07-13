@@ -2,18 +2,18 @@ use std::collections::HashMap;
 
 use async_trait::async_trait;
 
+use crate::core::notebook::{notebook_block_summary, notebook_block_to_worklog_input};
 use crate::core::settings::to_validation_config;
-use crate::core::validation::{validate_day, IssueLevel};
-use crate::core::worklog::to_worklog_input;
+use crate::core::validation::{validate_notebook_day, IssueLevel};
 use crate::error::AppError;
 use crate::state::{
-    Day, DryRunSummary, EntryPushResult, JiraIssueRef, JiraProfile, PlannedRequest, PlannedWorklog,
-    PushSummary, Settings, WorklogInput,
+    BlockPushResult, DryRunSummary, JiraIssueRef, JiraProfile, NotebookBlock, NotebookDay,
+    PlannedRequest, PlannedWorklog, PushSummary, Settings, WorklogInput,
 };
 
 #[async_trait]
 pub trait PushRepository {
-    async fn get_day(&self, date: &str) -> Result<Day, AppError>;
+    async fn get_day(&self, date: &str) -> Result<NotebookDay, AppError>;
     async fn mark_synced(&self, id: &str, tempo_worklog_id: i64) -> Result<(), AppError>;
     async fn get_cached_issue_id(&self, key: &str) -> Result<Option<String>, AppError>;
     async fn cache_issue(&self, key: &str, issue_id: &str, summary: &str) -> Result<(), AppError>;
@@ -44,7 +44,13 @@ where
     T: TempoPushClient + Sync,
 {
     let day = repo.get_day(date).await?;
-    let blocked = validation_blockers(&day, &repo.get_settings().await?);
+    let pushable = day
+        .blocks
+        .iter()
+        .filter(|block| pushable_block(block))
+        .cloned()
+        .collect::<Vec<_>>();
+    let blocked = validation_blockers(&pushable, &repo.get_settings().await?);
     if !blocked.is_empty() {
         return Ok(PushSummary {
             results: Vec::new(),
@@ -55,13 +61,12 @@ where
         });
     }
 
-    let unsynced = day
-        .entries
+    let unsynced = pushable
         .iter()
-        .filter(|entry| entry.tempo_worklog_id.is_none())
+        .filter(|block| block.tempo_worklog_id.is_none())
         .cloned()
         .collect::<Vec<_>>();
-    let skipped = day.entries.len() - unsynced.len();
+    let skipped = pushable.len().saturating_sub(unsynced.len());
 
     if unsynced.is_empty() {
         return Ok(PushSummary {
@@ -76,30 +81,30 @@ where
     let me = jira.myself().await?;
     let mut results = Vec::new();
 
-    for entry in unsynced {
-        match resolve_issue_id(&entry.ticket_key, jira, repo).await {
-            Ok(issue_id) => match to_worklog_input(&entry, issue_id, &me.account_id) {
+    for block in unsynced {
+        match resolve_issue_id(&block.ticket_id, jira, repo).await {
+            Ok(issue_id) => match notebook_block_to_worklog_input(&block, issue_id, &me.account_id) {
                 Ok(input) => match tempo.create_worklog(&input).await {
                     Ok(tempo_worklog_id) => {
-                        repo.mark_synced(&entry.id, tempo_worklog_id).await?;
-                        results.push(EntryPushResult {
-                            entry_id: entry.id,
-                            ticket_key: entry.ticket_key,
+                        repo.mark_synced(&block.id, tempo_worklog_id).await?;
+                        results.push(BlockPushResult {
+                            block_id: block.id,
+                            ticket_id: block.ticket_id,
                             ok: true,
                             tempo_worklog_id: Some(tempo_worklog_id),
                             error: None,
                         });
                     }
                     Err(error) => {
-                        results.push(failed_result(entry.id, entry.ticket_key, error.message));
+                        results.push(failed_result(block.id, block.ticket_id, error.message));
                     }
                 },
                 Err(message) => {
-                    results.push(failed_result(entry.id, entry.ticket_key, message));
+                    results.push(failed_result(block.id, block.ticket_id, message));
                 }
             },
             Err(error) => {
-                results.push(failed_result(entry.id, entry.ticket_key, error.message));
+                results.push(failed_result(block.id, block.ticket_id, error.message));
             }
         }
     }
@@ -125,7 +130,13 @@ where
     T: TempoPushClient + Sync,
 {
     let day = repo.get_day(date).await?;
-    let blocked = validation_blockers(&day, &repo.get_settings().await?);
+    let pushable = day
+        .blocks
+        .iter()
+        .filter(|block| pushable_block(block))
+        .cloned()
+        .collect::<Vec<_>>();
+    let blocked = validation_blockers(&pushable, &repo.get_settings().await?);
     if !blocked.is_empty() {
         return Ok(DryRunSummary {
             dry_run: true,
@@ -135,25 +146,24 @@ where
         });
     }
 
-    let unsynced = day
-        .entries
+    let unsynced = pushable
         .iter()
-        .filter(|entry| entry.tempo_worklog_id.is_none())
+        .filter(|block| block.tempo_worklog_id.is_none())
         .cloned()
         .collect::<Vec<_>>();
-    let skipped = day.entries.len() - unsynced.len();
+    let skipped = pushable.len().saturating_sub(unsynced.len());
     let me = jira.myself().await?;
     let mut planned = Vec::new();
 
-    for entry in unsynced {
-        let issue_id = resolve_issue_id(&entry.ticket_key, jira, repo).await?;
-        let input = to_worklog_input(&entry, issue_id, &me.account_id)
+    for block in unsynced {
+        let issue_id = resolve_issue_id(&block.ticket_id, jira, repo).await?;
+        let input = notebook_block_to_worklog_input(&block, issue_id, &me.account_id)
             .map_err(|message| AppError::internal(message))?;
         let mut request = tempo.preview_create_worklog(&input).await?;
         request.headers = redact_auth(request.headers);
         planned.push(PlannedWorklog {
-            entry_id: entry.id,
-            ticket_key: entry.ticket_key,
+            block_id: block.id,
+            ticket_id: block.ticket_id,
             issue_id,
             request,
         });
@@ -167,12 +177,16 @@ where
     })
 }
 
-fn validation_blockers(day: &Day, settings: &Settings) -> Vec<String> {
-    validate_day(&day.entries, &to_validation_config(settings))
+fn validation_blockers(blocks: &[NotebookBlock], settings: &Settings) -> Vec<String> {
+    validate_notebook_day(blocks, &to_validation_config(settings))
         .into_iter()
         .filter(|issue| issue.level == IssueLevel::Error)
         .map(|issue| issue.message)
         .collect()
+}
+
+fn pushable_block(block: &NotebookBlock) -> bool {
+    block.closed && block.start_minute.is_some() && block.end_minute.is_some() && !notebook_block_summary(block).trim().is_empty()
 }
 
 async fn resolve_issue_id<R, J>(key: &str, jira: &J, repo: &R) -> Result<i64, AppError>
@@ -201,10 +215,10 @@ fn redact_auth(mut headers: HashMap<String, String>) -> HashMap<String, String> 
     headers
 }
 
-fn failed_result(entry_id: String, ticket_key: String, error: String) -> EntryPushResult {
-    EntryPushResult {
-        entry_id,
-        ticket_key,
+fn failed_result(block_id: String, ticket_id: String, error: String) -> BlockPushResult {
+    BlockPushResult {
+        block_id,
+        ticket_id,
         ok: false,
         tempo_worklog_id: None,
         error: Some(error),
@@ -223,38 +237,40 @@ mod tests {
     use super::{dry_run_day, push_day, JiraPushClient, PushRepository, TempoPushClient};
     use crate::error::AppError;
     use crate::state::{
-        Day, DryRunSummary, Entry, JiraIssueRef, JiraProfile, PlannedRequest, Settings, WorklogInput,
+        DryRunSummary, JiraIssueRef, JiraProfile, NotebookBlock, NotebookDay, PlannedRequest,
+        Settings, WorklogInput,
     };
 
-    fn entry(overrides: impl FnOnce(&mut Entry)) -> Entry {
-        let mut entry = Entry {
-            id: "e1".into(),
+    fn block(overrides: impl FnOnce(&mut NotebookBlock)) -> NotebookBlock {
+        let mut block = NotebookBlock {
+            id: "b1".into(),
             date: "2025-05-09".into(),
-            start: "09:00".into(),
-            end: "09:45".into(),
-            ticket_key: "PEA-777".into(),
-            summary: "Work".into(),
+            start_minute: Some(9 * 60),
+            end_minute: Some(9 * 60 + 45),
+            text: "Work".into(),
+            closed: true,
+            ticket_id: "PEA-777".into(),
+            summary_override: None,
             tempo_worklog_id: None,
             synced_at: None,
         };
-        overrides(&mut entry);
-        entry
+        overrides(&mut block);
+        block
     }
 
     struct FakeRepo {
-        day: Mutex<Day>,
+        day: Mutex<NotebookDay>,
         cache: Mutex<HashMap<String, String>>,
         settings: Settings,
         get_settings_calls: AtomicUsize,
     }
 
     impl FakeRepo {
-        fn new(entries: Vec<Entry>) -> Self {
+        fn new(blocks: Vec<NotebookBlock>) -> Self {
             Self {
-                day: Mutex::new(Day {
+                day: Mutex::new(NotebookDay {
                     date: "2025-05-09".into(),
-                    notes: String::new(),
-                    entries,
+                    blocks,
                 }),
                 cache: Mutex::new(HashMap::new()),
                 settings: Settings::default(),
@@ -265,14 +281,14 @@ mod tests {
 
     #[async_trait]
     impl PushRepository for FakeRepo {
-        async fn get_day(&self, _date: &str) -> Result<Day, AppError> {
+        async fn get_day(&self, _date: &str) -> Result<NotebookDay, AppError> {
             Ok(self.day.lock().map_err(|_| AppError::internal("day lock poisoned"))?.clone())
         }
 
         async fn mark_synced(&self, id: &str, tempo_worklog_id: i64) -> Result<(), AppError> {
             let mut day = self.day.lock().map_err(|_| AppError::internal("day lock poisoned"))?;
-            if let Some(entry) = day.entries.iter_mut().find(|entry| entry.id == id) {
-                entry.tempo_worklog_id = Some(tempo_worklog_id);
+            if let Some(block) = day.blocks.iter_mut().find(|block| block.id == id) {
+                block.tempo_worklog_id = Some(tempo_worklog_id);
             }
             Ok(())
         }
@@ -382,16 +398,16 @@ mod tests {
     #[tokio::test]
     async fn pushes_unsynced_entries_and_marks_them_synced() {
         let repo = FakeRepo::new(vec![
-            entry(|entry| {
-                entry.id = "a".into();
-                entry.start = "09:00".into();
-                entry.end = "09:30".into();
+            block(|block| {
+                block.id = "a".into();
+                block.start_minute = Some(9 * 60);
+                block.end_minute = Some(9 * 60 + 30);
             }),
-            entry(|entry| {
-                entry.id = "b".into();
-                entry.ticket_key = "REACT-1".into();
-                entry.start = "09:30".into();
-                entry.end = "10:00".into();
+            block(|block| {
+                block.id = "b".into();
+                block.ticket_id = "REACT-1".into();
+                block.start_minute = Some(9 * 60 + 30);
+                block.end_minute = Some(10 * 60);
             }),
         ]);
         let jira = FakeJira {
@@ -413,17 +429,17 @@ mod tests {
     #[tokio::test]
     async fn skips_already_synced_entries() {
         let repo = FakeRepo::new(vec![
-            entry(|entry| {
-                entry.id = "a".into();
-                entry.tempo_worklog_id = Some(555);
-                entry.start = "09:00".into();
-                entry.end = "09:30".into();
+            block(|block| {
+                block.id = "a".into();
+                block.tempo_worklog_id = Some(555);
+                block.start_minute = Some(9 * 60);
+                block.end_minute = Some(9 * 60 + 30);
             }),
-            entry(|entry| {
-                entry.id = "b".into();
-                entry.ticket_key = "REACT-1".into();
-                entry.start = "09:30".into();
-                entry.end = "10:00".into();
+            block(|block| {
+                block.id = "b".into();
+                block.ticket_id = "REACT-1".into();
+                block.start_minute = Some(9 * 60 + 30);
+                block.end_minute = Some(10 * 60);
             }),
         ]);
         let jira = FakeJira {
@@ -443,7 +459,7 @@ mod tests {
 
     #[tokio::test]
     async fn blocks_the_whole_push_when_any_entry_is_invalid() {
-        let repo = FakeRepo::new(vec![entry(|entry| entry.ticket_key = "not a ticket".into())]);
+        let repo = FakeRepo::new(vec![block(|block| block.ticket_id = "not a ticket".into())]);
         let jira = FakeJira {
             resolve_calls: AtomicUsize::new(0),
         };
@@ -460,15 +476,15 @@ mod tests {
     #[tokio::test]
     async fn resolves_each_distinct_ticket_only_once() {
         let repo = FakeRepo::new(vec![
-            entry(|entry| {
-                entry.id = "a".into();
-                entry.start = "09:00".into();
-                entry.end = "09:30".into();
+            block(|block| {
+                block.id = "a".into();
+                block.start_minute = Some(9 * 60);
+                block.end_minute = Some(9 * 60 + 30);
             }),
-            entry(|entry| {
-                entry.id = "b".into();
-                entry.start = "09:30".into();
-                entry.end = "10:00".into();
+            block(|block| {
+                block.id = "b".into();
+                block.start_minute = Some(9 * 60 + 30);
+                block.end_minute = Some(10 * 60);
             }),
         ]);
         let jira = FakeJira {
@@ -484,10 +500,10 @@ mod tests {
 
     #[tokio::test]
     async fn dry_run_builds_requests_sends_nothing_and_redacts_auth() {
-        let repo = FakeRepo::new(vec![entry(|entry| {
-            entry.id = "a".into();
-            entry.start = "09:00".into();
-            entry.end = "09:30".into();
+        let repo = FakeRepo::new(vec![block(|block| {
+            block.id = "a".into();
+            block.start_minute = Some(9 * 60);
+            block.end_minute = Some(9 * 60 + 30);
         })]);
         let jira = FakeJira {
             resolve_calls: AtomicUsize::new(0),
@@ -510,7 +526,7 @@ mod tests {
 
     #[tokio::test]
     async fn dry_run_still_blocks_when_entry_is_invalid() {
-        let repo = FakeRepo::new(vec![entry(|entry| entry.ticket_key = "nope".into())]);
+        let repo = FakeRepo::new(vec![block(|block| block.ticket_id = "nope".into())]);
         let jira = FakeJira {
             resolve_calls: AtomicUsize::new(0),
         };
@@ -526,10 +542,10 @@ mod tests {
 
     #[tokio::test]
     async fn validates_against_stored_settings() {
-        let repo = FakeRepo::new(vec![entry(|entry| {
-            entry.id = "a".into();
-            entry.start = "09:00".into();
-            entry.end = "09:30".into();
+        let repo = FakeRepo::new(vec![block(|block| {
+            block.id = "a".into();
+            block.start_minute = Some(9 * 60);
+            block.end_minute = Some(9 * 60 + 30);
         })]);
         let jira = FakeJira {
             resolve_calls: AtomicUsize::new(0),
@@ -545,16 +561,16 @@ mod tests {
     #[tokio::test]
     async fn records_per_entry_error_without_aborting_the_rest() {
         let repo = FakeRepo::new(vec![
-            entry(|entry| {
-                entry.id = "a".into();
-                entry.start = "09:00".into();
-                entry.end = "09:30".into();
+            block(|block| {
+                block.id = "a".into();
+                block.start_minute = Some(9 * 60);
+                block.end_minute = Some(9 * 60 + 30);
             }),
-            entry(|entry| {
-                entry.id = "b".into();
-                entry.ticket_key = "REACT-1".into();
-                entry.start = "09:30".into();
-                entry.end = "10:00".into();
+            block(|block| {
+                block.id = "b".into();
+                block.ticket_id = "REACT-1".into();
+                block.start_minute = Some(9 * 60 + 30);
+                block.end_minute = Some(10 * 60);
             }),
         ]);
         let jira = FakeJira {
@@ -575,5 +591,30 @@ mod tests {
             .unwrap()
             .to_lowercase()
             .contains("account attribute"));
+    }
+
+    #[tokio::test]
+    async fn ignores_open_or_untimed_blocks_when_counting_pushable_work() {
+        let repo = FakeRepo::new(vec![
+            block(|_| {}),
+            block(|block| {
+                block.id = "draft".into();
+                block.start_minute = None;
+                block.end_minute = None;
+                block.closed = false;
+                block.text = String::from("Draft note");
+                block.ticket_id = String::new();
+            }),
+        ]);
+        let jira = FakeJira {
+            resolve_calls: AtomicUsize::new(0),
+        };
+        let tempo = FakeTempo {
+            created: Mutex::new(Vec::new()),
+        };
+
+        let dry = dry_run_day("2025-05-09", &jira, &tempo, &repo).await.unwrap();
+        assert_eq!(dry.planned.len(), 1);
+        assert_eq!(dry.skipped, 0);
     }
 }

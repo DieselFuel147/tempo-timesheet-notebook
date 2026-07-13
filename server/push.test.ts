@@ -1,31 +1,33 @@
 import { describe, it, expect } from 'vitest'
-import type { Day, Entry, WorklogInput, DryRunSummary, PlannedRequest } from '../shared/types'
+import type { NotebookBlock, NotebookDay, WorklogInput, DryRunSummary, PlannedRequest } from '../shared/types'
 import { pushDay, type PushRepo } from './push'
 import { defaultSettings } from '../shared/settings'
 
-function entry(o: Partial<Entry>): Entry {
+function block(o: Partial<NotebookBlock>): NotebookBlock {
   return {
-    id: o.id ?? 'e1',
+    id: o.id ?? 'b1',
     date: '2025-05-09',
-    start: '09:00',
-    end: '09:45',
-    ticketKey: 'PEA-777',
-    summary: 'Work',
+    startMinute: 9 * 60,
+    endMinute: 9 * 60 + 45,
+    text: 'Work',
+    closed: true,
+    ticketId: 'PEA-777',
+    summaryOverride: null,
     tempoWorklogId: null,
     syncedAt: null,
     ...o,
   }
 }
 
-function fakeRepo(entries: Entry[]) {
-  const day: Day = { date: '2025-05-09', notes: '', entries }
+function fakeRepo(blocks: NotebookBlock[]) {
+  const day: NotebookDay = { date: '2025-05-09', blocks }
   const cache = new Map<string, string>()
   const state = { getSettingsCalls: 0 }
   const repo: PushRepo = {
     getDay: () => day,
     markSynced: (id, wid) => {
-      const e = day.entries.find((x) => x.id === id)
-      if (e) e.tempoWorklogId = wid
+      const current = day.blocks.find((x) => x.id === id)
+      if (current) current.tempoWorklogId = wid
     },
     getCachedIssueId: (k) => cache.get(k) ?? null,
     cacheIssue: (k, id) => cache.set(k, id),
@@ -66,10 +68,10 @@ function fakeClients() {
 }
 
 describe('pushDay', () => {
-  it('pushes unsynced entries and marks them synced', async () => {
+  it('pushes unsynced blocks and marks them synced', async () => {
     const { repo } = fakeRepo([
-      entry({ id: 'a', start: '09:00', end: '09:30' }),
-      entry({ id: 'b', ticketKey: 'REACT-1', start: '09:30', end: '10:00' }),
+      block({ id: 'a', startMinute: 9 * 60, endMinute: 9 * 60 + 30 }),
+      block({ id: 'b', ticketId: 'REACT-1', startMinute: 9 * 60 + 30, endMinute: 10 * 60 }),
     ])
     const { jira, tempo, state } = fakeClients()
     const res = await pushDay('2025-05-09', jira, tempo, repo)
@@ -79,10 +81,10 @@ describe('pushDay', () => {
     expect(state.created[0]).toMatchObject({ issueId: 111, authorAccountId: 'acc-1' })
   })
 
-  it('skips already-synced entries (idempotent re-push)', async () => {
+  it('skips already-synced blocks (idempotent re-push)', async () => {
     const { repo } = fakeRepo([
-      entry({ id: 'a', tempoWorklogId: 555, start: '09:00', end: '09:30' }),
-      entry({ id: 'b', ticketKey: 'REACT-1', start: '09:30', end: '10:00' }),
+      block({ id: 'a', tempoWorklogId: 555, startMinute: 9 * 60, endMinute: 9 * 60 + 30 }),
+      block({ id: 'b', ticketId: 'REACT-1', startMinute: 9 * 60 + 30, endMinute: 10 * 60 }),
     ])
     const { jira, tempo, state } = fakeClients()
     const res = await pushDay('2025-05-09', jira, tempo, repo)
@@ -92,8 +94,8 @@ describe('pushDay', () => {
     expect(state.created[0].issueId).toBe(222) // only entry b
   })
 
-  it('blocks the whole push when any entry is invalid', async () => {
-    const { repo } = fakeRepo([entry({ id: 'a', ticketKey: 'not a ticket' })])
+  it('blocks the whole push when any block is invalid', async () => {
+    const { repo } = fakeRepo([block({ id: 'a', ticketId: 'not a ticket' })])
     const { jira, tempo, state } = fakeClients()
     const res = await pushDay('2025-05-09', jira, tempo, repo)
     expect(res.blocked.length).toBeGreaterThan(0)
@@ -103,8 +105,8 @@ describe('pushDay', () => {
 
   it('resolves each distinct ticket only once (caching)', async () => {
     const { repo } = fakeRepo([
-      entry({ id: 'a', start: '09:00', end: '09:30' }),
-      entry({ id: 'b', start: '09:30', end: '10:00' }),
+      block({ id: 'a', startMinute: 9 * 60, endMinute: 9 * 60 + 30 }),
+      block({ id: 'b', startMinute: 9 * 60 + 30, endMinute: 10 * 60 }),
     ]) // both PEA-777
     const { jira, tempo, state } = fakeClients()
     await pushDay('2025-05-09', jira, tempo, repo)
@@ -112,7 +114,7 @@ describe('pushDay', () => {
   })
 
   it('dry run builds requests, sends nothing, and redacts the auth token', async () => {
-    const { repo } = fakeRepo([entry({ id: 'a', start: '09:00', end: '09:30' })])
+    const { repo } = fakeRepo([block({ id: 'a', startMinute: 9 * 60, endMinute: 9 * 60 + 30 })])
     const { jira, tempo, state } = fakeClients()
     const res = await pushDay('2025-05-09', jira, tempo, repo, { dryRun: true })
     expect('dryRun' in res && res.dryRun).toBe(true)
@@ -123,8 +125,8 @@ describe('pushDay', () => {
     expect(state.created).toHaveLength(0) // nothing was sent
   })
 
-  it('dry run still blocks (sends nothing) when an entry is invalid', async () => {
-    const { repo } = fakeRepo([entry({ id: 'a', ticketKey: 'nope' })])
+  it('dry run still blocks (sends nothing) when a block is invalid', async () => {
+    const { repo } = fakeRepo([block({ id: 'a', ticketId: 'nope' })])
     const { jira, tempo, state } = fakeClients()
     const res = (await pushDay('2025-05-09', jira, tempo, repo, { dryRun: true })) as DryRunSummary
     expect(res.blocked.length).toBeGreaterThan(0)
@@ -133,16 +135,16 @@ describe('pushDay', () => {
   })
 
   it('validates against the stored settings (single source of validation config)', async () => {
-    const { repo, state } = fakeRepo([entry({ id: 'a', start: '09:00', end: '09:30' })])
+    const { repo, state } = fakeRepo([block({ id: 'a', startMinute: 9 * 60, endMinute: 9 * 60 + 30 })])
     const { jira, tempo } = fakeClients()
     await pushDay('2025-05-09', jira, tempo, repo)
     expect(state.getSettingsCalls).toBeGreaterThan(0)
   })
 
-  it('records a per-entry error without aborting the rest', async () => {
+  it('records a per-block error without aborting the rest', async () => {
     const { repo } = fakeRepo([
-      entry({ id: 'a', start: '09:00', end: '09:30' }),
-      entry({ id: 'b', start: '09:30', end: '10:00', ticketKey: 'REACT-1' }),
+      block({ id: 'a', startMinute: 9 * 60, endMinute: 9 * 60 + 30 }),
+      block({ id: 'b', startMinute: 9 * 60 + 30, endMinute: 10 * 60, ticketId: 'REACT-1' }),
     ])
     const { jira } = fakeClients()
     let n = 0
@@ -163,5 +165,23 @@ describe('pushDay', () => {
     expect(res.synced).toBe(1)
     expect(res.failed).toBe(1)
     expect(res.results.find((r) => !r.ok)?.error).toMatch(/account attribute/i)
+  })
+
+  it('ignores open draft blocks when counting pushable work', async () => {
+    const { repo } = fakeRepo([
+      block({ id: 'a', ticketId: 'PEA-777', text: 'Completed notebook block' }),
+      block({
+        id: 'draft',
+        startMinute: null,
+        endMinute: null,
+        closed: false,
+        text: 'Draft note',
+        ticketId: '',
+      }),
+    ])
+    const { jira, tempo } = fakeClients()
+    const res = (await pushDay('2025-05-09', jira, tempo, repo, { dryRun: true })) as DryRunSummary
+    expect(res.planned).toHaveLength(1)
+    expect(res.skipped).toBe(0)
   })
 })

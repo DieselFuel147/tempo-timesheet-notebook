@@ -50,4 +50,10 @@ describe('notebook helpers', () => {
       authorAccountId: 'acc-1',
     })
   })
+
+  it('uses the summary override as the Tempo description when present', () => {
+    expect(notebookBlockToWorklogInput(block({ summaryOverride: 'Manual tempo summary' }), 111, 'acc-1').description).toBe(
+      'Manual tempo summary',
+    )
+  })
 })

@@ -3,6 +3,7 @@ pub mod config;
 pub mod db;
 pub mod http;
 pub mod jira;
+pub mod notebook;
 pub mod push;
 pub mod secret_store;
 pub mod settings;

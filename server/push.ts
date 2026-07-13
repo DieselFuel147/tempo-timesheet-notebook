@@ -1,17 +1,18 @@
 import type {
-  Day,
+  NotebookBlock,
+  NotebookDay,
   JiraProfile,
   JiraIssueRef,
   WorklogInput,
-  EntryPushResult,
+  BlockPushResult,
   PushSummary,
   PlannedRequest,
   PlannedWorklog,
   DryRunSummary,
 } from '../shared/types'
-import { validateDay } from '../shared/validation'
+import { notebookBlockSummary, notebookBlockToWorklogInput } from '../shared/notebook'
+import { validateNotebookDay } from '../shared/validation'
 import { defaultSettings, toValidationConfig, type Settings } from '../shared/settings'
-import { toWorklogInput } from '../shared/worklog'
 import * as realRepo from './db/repo'
 
 // Minimal interfaces so this orchestration can be unit-tested with fakes,
@@ -25,7 +26,7 @@ interface TempoLike {
   previewCreateWorklog(input: WorklogInput): Promise<PlannedRequest>
 }
 export interface PushRepo {
-  getDay(date: string): Day
+  getDay(date: string): NotebookDay
   markSynced(id: string, tempoWorklogId: number): void
   getCachedIssueId(key: string): string | null
   cacheIssue(key: string, issueId: string, summary: string): void
@@ -33,10 +34,18 @@ export interface PushRepo {
   getSettings?(): Settings
 }
 
+const defaultPushRepo: PushRepo = {
+  getDay: realRepo.getNotebookDay,
+  markSynced: realRepo.markSynced,
+  getCachedIssueId: realRepo.getCachedIssueId,
+  cacheIssue: realRepo.cacheIssue,
+  getSettings: realRepo.getSettings,
+}
+
 /**
- * Push a day to Tempo. Idempotent: entries that already carry a
+ * Push a notebook day to Tempo. Idempotent: blocks that already carry a
  * tempoWorklogId are skipped, so re-running never double-logs. The whole push
- * is blocked (nothing sent) if any entry has a validation error.
+ * is blocked (nothing sent) if any block has a validation error.
  */
 export function pushDay(
   date: string,
@@ -56,16 +65,17 @@ export async function pushDay(
   date: string,
   jira: JiraLike,
   tempo: TempoLike,
-  repo: PushRepo = realRepo,
+  repo: PushRepo = defaultPushRepo,
   opts: { dryRun?: boolean } = {},
 ): Promise<PushSummary | DryRunSummary> {
   const dryRun = opts.dryRun ?? false
   const day = repo.getDay(date)
+  const pushable = day.blocks.filter(isPushableBlock)
 
   // Gate against the user's stored config, so the server validates with exactly
   // the same rules the UI shows. (Falls back to defaults for bare fakes.)
   const config = toValidationConfig(repo.getSettings?.() ?? defaultSettings)
-  const errors = validateDay(day.entries, config).filter((i) => i.level === 'error')
+  const errors = validateNotebookDay(pushable, config).filter((i) => i.level === 'error')
   if (errors.length > 0) {
     const blocked = errors.map((e) => e.message)
     return dryRun
@@ -73,19 +83,19 @@ export async function pushDay(
       : { results: [], synced: 0, failed: 0, skipped: 0, blocked }
   }
 
-  const unsynced = day.entries.filter((e) => !e.tempoWorklogId)
-  const skipped = day.entries.length - unsynced.length
+  const unsynced = pushable.filter((block) => !block.tempoWorklogId)
+  const skipped = pushable.length - unsynced.length
 
   // Dry run: build the exact requests, print them, send nothing.
   if (dryRun) {
     const me = await jira.myself()
     const planned: PlannedWorklog[] = []
-    for (const entry of unsynced) {
-      const issueId = await resolveIssueId(entry.ticketKey, jira, repo)
-      const input = toWorklogInput(entry, Number(issueId), me.accountId)
+    for (const block of unsynced) {
+      const issueId = await resolveIssueId(block.ticketId, jira, repo)
+      const input = notebookBlockToWorklogInput(block, Number(issueId), me.accountId)
       const request = await tempo.previewCreateWorklog(input)
       request.headers = redactAuth(request.headers)
-      planned.push({ entryId: entry.id, ticketKey: entry.ticketKey, issueId: Number(issueId), request })
+      planned.push({ blockId: block.id, ticketId: block.ticketId, issueId: Number(issueId), request })
     }
     logPlanned(date, planned, skipped)
     return { dryRun: true, planned, skipped, blocked: [] }
@@ -96,24 +106,24 @@ export async function pushDay(
   }
 
   const me = await jira.myself()
-  const results: EntryPushResult[] = []
+  const results: BlockPushResult[] = []
 
-  for (const entry of unsynced) {
+  for (const block of unsynced) {
     try {
-      const issueId = await resolveIssueId(entry.ticketKey, jira, repo)
-      const input = toWorklogInput(entry, Number(issueId), me.accountId)
+      const issueId = await resolveIssueId(block.ticketId, jira, repo)
+      const input = notebookBlockToWorklogInput(block, Number(issueId), me.accountId)
       const created = await tempo.createWorklog(input)
-      repo.markSynced(entry.id, created.tempoWorklogId)
+      repo.markSynced(block.id, created.tempoWorklogId)
       results.push({
-        entryId: entry.id,
-        ticketKey: entry.ticketKey,
+        blockId: block.id,
+        ticketId: block.ticketId,
         ok: true,
         tempoWorklogId: created.tempoWorklogId,
       })
     } catch (err) {
       results.push({
-        entryId: entry.id,
-        ticketKey: entry.ticketKey,
+        blockId: block.id,
+        ticketId: block.ticketId,
         ok: false,
         error: (err as Error).message,
       })
@@ -127,6 +137,10 @@ export async function pushDay(
     skipped,
     blocked: [],
   }
+}
+
+function isPushableBlock(block: NotebookBlock): boolean {
+  return block.closed && block.startMinute !== null && block.endMinute !== null && notebookBlockSummary(block).trim().length > 0
 }
 
 async function resolveIssueId(key: string, jira: JiraLike, repo: PushRepo): Promise<string> {
@@ -152,7 +166,7 @@ function logPlanned(date: string, planned: PlannedWorklog[], skipped: number): v
     `\n=== DRY RUN: ${date} — ${planned.length} worklog(s) would be sent, ${skipped} already synced (nothing sent) ===`,
   )
   for (const p of planned) {
-    console.log(`\n• ${p.ticketKey} (issueId ${p.issueId})  [entry ${p.entryId}]`)
+    console.log(`\n• ${p.ticketId} (issueId ${p.issueId})  [block ${p.blockId}]`)
     console.log(`  ${p.request.method} ${p.request.url}`)
     console.log(`  headers: ${JSON.stringify(p.request.headers)}`)
     console.log(`  body:    ${JSON.stringify(p.request.body)}`)
