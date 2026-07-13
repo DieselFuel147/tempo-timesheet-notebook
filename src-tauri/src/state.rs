@@ -281,12 +281,3 @@ impl AppState {
         Ok(settings)
     }
 }
-
-pub fn default_profile() -> JiraProfile {
-    JiraProfile {
-        account_id: "tauri-scaffold".into(),
-        display_name: "Tauri Scaffold".into(),
-        email_address: None,
-        time_zone: "Local".into(),
-    }
-}

@@ -40,34 +40,11 @@ impl AuthHeaderValue {
     }
 }
 
-pub fn redact_sensitive_headers(headers: &HeaderMap) -> HashMap<String, String> {
-    let mut out = HashMap::new();
-    for (name, value) in headers {
-        let key = name.as_str().to_ascii_lowercase();
-        let rendered = if key == "authorization" {
-            redact_authorization_header(value.to_str().unwrap_or("<unprintable>"))
-        } else {
-            value.to_str().unwrap_or("<unprintable>").to_string()
-        };
-        out.insert(name.to_string(), rendered);
-    }
-    out
-}
-
-fn redact_authorization_header(value: &str) -> String {
-    let trimmed = value.trim();
-    let mut parts = trimmed.splitn(2, ' ');
-    match (parts.next(), parts.next()) {
-        (Some(scheme), Some(_)) if !scheme.is_empty() => format!("{scheme} <redacted>"),
-        _ => String::from("<redacted>"),
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
+    use reqwest::header::{HeaderMap, AUTHORIZATION};
 
-    use super::{redact_sensitive_headers, AuthHeaderValue};
+    use super::AuthHeaderValue;
 
     #[test]
     fn bearer_redaction_matches_dry_run_contract() {
@@ -88,16 +65,5 @@ mod tests {
             .and_then(|header| header.to_str().ok())
             .unwrap_or_default();
         assert!(value.starts_with("Basic "));
-    }
-
-    #[test]
-    fn arbitrary_authorization_headers_are_redacted() {
-        let mut headers = HeaderMap::new();
-        headers.insert(AUTHORIZATION, HeaderValue::from_static("Bearer abc123"));
-        headers.insert("accept", HeaderValue::from_static("application/json"));
-
-        let redacted = redact_sensitive_headers(&headers);
-        assert_eq!(redacted.get("authorization"), Some(&String::from("Bearer <redacted>")));
-        assert_eq!(redacted.get("accept"), Some(&String::from("application/json")));
     }
 }

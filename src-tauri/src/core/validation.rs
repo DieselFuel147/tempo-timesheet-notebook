@@ -20,7 +20,6 @@ pub struct ValidationIssue {
 
 #[derive(Debug, Clone)]
 pub struct ValidationConfig {
-    pub admin_ticket: String,
     pub ticket_pattern: Regex,
     pub workday_start_min: i32,
     pub workday_end_min: i32,
@@ -28,13 +27,6 @@ pub struct ValidationConfig {
     pub max_entry_hours: f64,
     pub min_day_hours: f64,
     pub max_day_hours: f64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ValidationSummary {
-    pub errors: Vec<ValidationIssue>,
-    pub warnings: Vec<ValidationIssue>,
-    pub has_errors: bool,
 }
 
 pub fn default_ticket_pattern() -> Regex {
@@ -240,25 +232,6 @@ pub fn validate_notebook_block(block: &NotebookBlock, config: &ValidationConfig)
     issues
 }
 
-pub fn summarize_issues(issues: &[ValidationIssue]) -> ValidationSummary {
-    let errors = issues
-        .iter()
-        .filter(|issue| issue.level == IssueLevel::Error)
-        .cloned()
-        .collect::<Vec<_>>();
-    let warnings = issues
-        .iter()
-        .filter(|issue| issue.level == IssueLevel::Warning)
-        .cloned()
-        .collect::<Vec<_>>();
-
-    ValidationSummary {
-        has_errors: !errors.is_empty(),
-        errors,
-        warnings,
-    }
-}
-
 fn fmt_min(minutes: i32) -> String {
     let hours = minutes.div_euclid(60);
     let mins = minutes.rem_euclid(60);
@@ -272,7 +245,6 @@ mod tests {
 
     fn default_validation_config() -> ValidationConfig {
         ValidationConfig {
-            admin_ticket: "ADMIN-TICKET".into(),
             ticket_pattern: default_ticket_pattern(),
             workday_start_min: 8 * 60,
             workday_end_min: 18 * 60,
@@ -307,11 +279,11 @@ mod tests {
     }
 
     #[test]
-    fn accepts_default_admin_ticket() {
+    fn accepts_admin_style_ticket() {
         let config = default_validation_config();
         assert_eq!(
             validate_notebook_block(
-                &block(|block| block.ticket_id = config.admin_ticket.clone()),
+                &block(|block| block.ticket_id = "ADMIN-TICKET".into()),
                 &config,
             ),
             Vec::new()

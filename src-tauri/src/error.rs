@@ -3,7 +3,6 @@ use serde::Serialize;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ErrorCode {
-    BadRequest,
     ValidationError,
     NotConfigured,
     AuthError,
@@ -43,10 +42,6 @@ impl AppError {
             field_errors: Vec::new(),
             retryable: None,
         }
-    }
-
-    pub fn message(message: impl Into<String>) -> Self {
-        Self::internal(message)
     }
 
     pub fn internal(message: impl Into<String>) -> Self {

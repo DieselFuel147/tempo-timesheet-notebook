@@ -24,15 +24,6 @@ impl TempoClient {
         }
     }
 
-    pub async fn list_worklogs(&self, limit: usize) -> Result<serde_json::Value, AppError> {
-        let mut url = self.base_url.join("/worklogs")?;
-        url.query_pairs_mut().append_pair("limit", &limit.to_string());
-
-        let mut request = JsonRequest::new(Method::GET, url, "Tempo GET /worklogs");
-        self.auth.apply(&mut request.headers)?;
-        self.http.request_json(request).await
-    }
-
     pub async fn create_worklog(&self, input: &WorklogInput) -> Result<TempoWorklogCreated, AppError> {
         let url = self.base_url.join("/worklogs")?;
         let mut request = JsonRequest::new(Method::POST, url, "Tempo POST /worklogs");

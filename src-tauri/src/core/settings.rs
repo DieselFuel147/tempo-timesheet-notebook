@@ -40,7 +40,6 @@ pub fn merge_settings_value(raw: &Value) -> Settings {
 
 pub fn to_validation_config(settings: &Settings) -> ValidationConfig {
     ValidationConfig {
-        admin_ticket: settings.validation.admin_ticket.clone(),
         ticket_pattern: default_ticket_pattern(),
         workday_start_min: settings.validation.workday_start_min,
         workday_end_min: settings.validation.workday_end_min,
