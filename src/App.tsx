@@ -31,6 +31,7 @@ import {
   Box,
   Button,
   Chip,
+  CircularProgress,
   Collapse,
   CssBaseline,
   IconButton,
@@ -103,6 +104,7 @@ function cloneSettings(settings: AppSettings): AppSettings {
       jira: { ...settings.connections.jira },
       tempo: { ...settings.connections.tempo },
     },
+    ai: { ...settings.ai },
   }
 }
 
@@ -256,6 +258,8 @@ interface NotebookEditorPanelProps {
   onTextChange: (id: string, value: string, eventTarget?: HTMLTextAreaElement | null) => void
   onTicketChange: (id: string, ticketId: string) => void
   onSummaryChange: (id: string, value: string) => void
+  onSuggest: (id: string) => void
+  suggestingId: string | null
   onDeleteBlock: (id: string) => void
   activeReopenableId: string | null
   getTextAreaRef: (id: string) => (element: HTMLTextAreaElement | null) => void
@@ -268,6 +272,8 @@ const NotebookEditorPanel = memo(function NotebookEditorPanel({
   onTextChange,
   onTicketChange,
   onSummaryChange,
+  onSuggest,
+  suggestingId,
   onDeleteBlock,
   activeReopenableId,
   getTextAreaRef,
@@ -398,8 +404,20 @@ const NotebookEditorPanel = memo(function NotebookEditorPanel({
                       }}
                     />
                     <Stack direction="row" spacing={1}>
-                      <Button size="small" startIcon={<AssistantIcon />} disabled title="Coming soon">
-                        Suggest
+                      <Button
+                        size="small"
+                        startIcon={
+                          suggestingId === block.id ? <CircularProgress size={14} /> : <AssistantIcon />
+                        }
+                        disabled={suggestingId !== null || block.text.trim().length === 0}
+                        onClick={() => onSuggest(block.id)}
+                        title={
+                          block.text.trim().length === 0
+                            ? 'Add notes first'
+                            : 'Summarize these notes with the local AI model'
+                        }
+                      >
+                        {suggestingId === block.id ? 'Suggesting…' : 'Suggest'}
                       </Button>
                       <Button
                         size="small"
@@ -822,6 +840,8 @@ export function App() {
   const [timelineTick, setTimelineTick] = useState(0)
   const [pushState, setPushState] = useState<PushState>({ mode: 'idle' })
   const [syncOpen, setSyncOpen] = useState(false)
+  const [suggestingId, setSuggestingId] = useState<string | null>(null)
+  const [aiRunning, setAiRunning] = useState(false)
 
   // Reveal the Tempo sync section automatically once a dry-run or push finishes
   // so the request preview / results are visible without a manual toggle.
@@ -874,6 +894,32 @@ export function App() {
     api.profile().then(setProfile).catch(() => setProfile(null))
     api.getSettings().then(setSettings).catch(() => setSettings(cloneSettings(defaultSettings)))
   }, [])
+
+  // Poll the local model's loaded/unloaded state for the status bar, but only
+  // while AI is enabled so we don't invoke the command needlessly.
+  useEffect(() => {
+    if (!settings.ai.enabled) {
+      setAiRunning(false)
+      return
+    }
+    let cancelled = false
+    const poll = () => {
+      api
+        .aiStatus()
+        .then((status) => {
+          if (!cancelled) setAiRunning(status.running)
+        })
+        .catch(() => {
+          if (!cancelled) setAiRunning(false)
+        })
+    }
+    poll()
+    const handle = setInterval(poll, 4000)
+    return () => {
+      cancelled = true
+      clearInterval(handle)
+    }
+  }, [settings.ai.enabled])
 
   useEffect(() => {
     let cancelled = false
@@ -1188,6 +1234,24 @@ export function App() {
       ),
     }))
   }, [commitDay, patchBlock])
+
+  const handleSuggest = useCallback(async (id: string) => {
+    const currentDay = dayRef.current
+    const block = currentDay?.blocks.find((candidate) => candidate.id === id)
+    const notes = block?.text.trim() ?? ''
+    if (!notes) return
+
+    setSuggestingId(id)
+    setError(null)
+    try {
+      const suggestion = (await api.suggestSummary(notes)).trim()
+      if (suggestion) handleSummaryChange(id, suggestion)
+    } catch (cause) {
+      setError(`Suggest failed: ${(cause as Error).message}`)
+    } finally {
+      setSuggestingId(null)
+    }
+  }, [handleSummaryChange])
 
   const runPushAction = useCallback(async (action: 'dry-run' | 'push') => {
     setPushState({ mode: 'running', action })
@@ -1547,6 +1611,8 @@ export function App() {
                     onTextChange={handleTextChange}
                     onTicketChange={handleTicketChange}
                     onSummaryChange={handleSummaryChange}
+                    onSuggest={handleSuggest}
+                    suggestingId={suggestingId}
                     onDeleteBlock={handleDeleteBlock}
                     activeReopenableId={activeReopenableId}
                     getTextAreaRef={getTextAreaRef}
@@ -1606,6 +1672,21 @@ export function App() {
                     {stat}
                   </Typography>
                 ))}
+                {settings.ai.enabled && (
+                  <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
+                    <Box
+                      sx={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: '50%',
+                        bgcolor: aiRunning ? 'secondary.main' : theme.ledger.headerCaption,
+                      }}
+                    />
+                    <Typography variant="caption" sx={{ fontFamily: MONO_FONT }}>
+                      {`ai · ${aiRunning ? 'loaded' : 'unloaded'}`}
+                    </Typography>
+                  </Stack>
+                )}
               </Stack>
               <Typography variant="caption" sx={{ fontFamily: MONO_FONT, opacity: 0.75 }}>
                 tap block · pins + merge

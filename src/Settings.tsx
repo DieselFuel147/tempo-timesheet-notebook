@@ -5,8 +5,10 @@ import {
   Alert,
   Box,
   Button,
+  FormControlLabel,
   Paper,
   Stack,
+  Switch,
   TextField,
   ToggleButton,
   ToggleButtonGroup,
@@ -14,11 +16,12 @@ import {
   IconButton,
 } from '@mui/material'
 import type {
+  AiSettings,
   SecretUpdates,
   Settings as AppSettings,
   ThresholdSettings,
 } from '../shared/settings'
-import { defaultSettings } from '../shared/settings'
+import { DEFAULT_AI_SYSTEM_PROMPT, defaultSettings } from '../shared/settings'
 import { parseTime } from '../shared/validation'
 import { minutesToHHmm } from './dateutil'
 import { api } from './api'
@@ -41,6 +44,7 @@ interface DraftState {
   tempoApiToken: string
   clearJiraApiToken: boolean
   clearTempoApiToken: boolean
+  ai: AiSettings
 }
 
 function buildDraft(settings: AppSettings): DraftState {
@@ -53,6 +57,7 @@ function buildDraft(settings: AppSettings): DraftState {
     tempoApiToken: '',
     clearJiraApiToken: false,
     clearTempoApiToken: false,
+    ai: { ...settings.ai },
   }
 }
 
@@ -73,6 +78,13 @@ function draftToSettings(draft: DraftState, settings: AppSettings): AppSettings 
         baseUrl: normalizeBaseUrl(draft.tempoBaseUrl),
         apiTokenSaved: draft.clearTempoApiToken ? false : settings.connections.tempo.apiTokenSaved || !!draft.tempoApiToken,
       },
+    },
+    ai: {
+      enabled: draft.ai.enabled,
+      binaryPath: draft.ai.binaryPath.trim(),
+      modelPath: draft.ai.modelPath.trim(),
+      idleTimeoutSecs: draft.ai.idleTimeoutSecs,
+      systemPrompt: draft.ai.systemPrompt,
     },
   }
 }
@@ -109,6 +121,11 @@ export function Settings({ settings, onSaved, onClose, appearance, onAppearanceC
 
   function setField<K extends keyof DraftState>(key: K, value: DraftState[K]) {
     setDraft((d) => ({ ...d, [key]: value }))
+    setSaved(false)
+  }
+
+  function setAi<K extends keyof AiSettings>(key: K, value: AiSettings[K]) {
+    setDraft((d) => ({ ...d, ai: { ...d.ai, [key]: value } }))
     setSaved(false)
   }
 
@@ -350,6 +367,77 @@ export function Settings({ settings, onSaved, onClose, appearance, onAppearanceC
               fullWidth
             />
           </Stack>
+        </Stack>
+      </Paper>
+
+      <Paper variant="outlined" sx={{ p: 2, mt: 2 }}>
+        <Typography variant="h6" component="h3" sx={{ mb: 1 }}>
+          AI (local summaries)
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Runs a local, on-device model to draft a worklog description from a block's notes when you
+          press Suggest. Nothing leaves your machine. Requires a llama.cpp <code>llama-server</code>
+          {' '}binary and a GGUF model file (Gemma-3-1b recommended).
+        </Typography>
+
+        <Stack spacing={1.5}>
+          <FormControlLabel
+            control={
+              <Switch
+                checked={draft.ai.enabled}
+                onChange={(e) => setAi('enabled', e.target.checked)}
+              />
+            }
+            label="Enable local AI summaries"
+          />
+
+          <TextField
+            label="llama-server binary path"
+            value={draft.ai.binaryPath}
+            onChange={(e) => setAi('binaryPath', e.target.value)}
+            placeholder="/opt/homebrew/bin/llama-server"
+            helperText="Absolute path to the llama.cpp server executable."
+          />
+
+          <TextField
+            label="Model file path (GGUF)"
+            value={draft.ai.modelPath}
+            onChange={(e) => setAi('modelPath', e.target.value)}
+            placeholder="/path/to/gemma-3-1b-it-Q4_K_M.gguf"
+            helperText="Absolute path to the GGUF model file."
+          />
+
+          <TextField
+            label="Idle shutdown (seconds)"
+            type="number"
+            slotProps={{ htmlInput: { min: 0 } }}
+            value={draft.ai.idleTimeoutSecs}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+              const v = e.target.valueAsNumber
+              setAi('idleTimeoutSecs', Number.isNaN(v) ? 0 : Math.max(0, Math.floor(v)))
+            }}
+            helperText="The model process is stopped after this long with no requests."
+          />
+
+          <TextField
+            label="System prompt"
+            value={draft.ai.systemPrompt}
+            onChange={(e) => setAi('systemPrompt', e.target.value)}
+            multiline
+            minRows={4}
+            helperText="Instructions sent to the model on every Suggest. Tweak to taste; leave blank to use the built-in default."
+          />
+          <Box>
+            <Button
+              type="button"
+              size="small"
+              variant="text"
+              disabled={draft.ai.systemPrompt === DEFAULT_AI_SYSTEM_PROMPT}
+              onClick={() => setAi('systemPrompt', DEFAULT_AI_SYSTEM_PROMPT)}
+            >
+              Reset prompt to default
+            </Button>
+          </Box>
         </Stack>
       </Paper>
 

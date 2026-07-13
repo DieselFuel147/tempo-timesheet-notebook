@@ -26,6 +26,8 @@ pub fn run() {
             commands::settings::save_settings,
             commands::push::push_day,
             commands::push::dry_run_day,
+            commands::ai::suggest_summary,
+            commands::ai::ai_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

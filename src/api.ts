@@ -76,6 +76,11 @@ export const api = {
     isDesktopRuntime()
       ? invokeCommand(tauriCommandNames.dryRunDay, { date })
       : fetch(`/api/day/${date}/push?dryRun=true`, { method: 'POST' }).then((r) => parse<DryRunSummary>(r)),
+  // Local, on-device AI. Desktop (Tauri) only — no web fallback (the legacy
+  // Fastify layer is being retired).
+  suggestSummary: (text: string) =>
+    invokeCommand(tauriCommandNames.suggestSummary, { text }),
+  aiStatus: () => invokeCommand(tauriCommandNames.aiStatus),
   getSettings: () =>
     isDesktopRuntime()
       ? invokeCommand(tauriCommandNames.getSettings).then((settings) => normalizeSettings(settings))

@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::{AppHandle, Manager};
 
+use crate::core::ai::SidecarManager;
 use crate::core::config::{IntegrationConfig, IntegrationSecrets};
 use crate::core::db::Repository;
 use crate::core::secret_store::{SecretPresence, SecretStore};
@@ -134,10 +135,39 @@ pub struct ConnectionSettings {
     pub tempo: TempoConnectionSettings,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AiSettings {
+    pub enabled: bool,
+    pub binary_path: String,
+    pub model_path: String,
+    pub idle_timeout_secs: u64,
+    pub system_prompt: String,
+}
+
+impl Default for AiSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            binary_path: String::new(),
+            model_path: String::new(),
+            idle_timeout_secs: 300,
+            system_prompt: crate::core::ai::DEFAULT_SYSTEM_PROMPT.to_string(),
+        }
+    }
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiStatus {
+    pub running: bool,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, Default, PartialEq)]
 pub struct Settings {
     pub validation: ThresholdSettings,
     pub connections: ConnectionSettings,
+    pub ai: AiSettings,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -205,6 +235,7 @@ pub struct DryRunSummary {
 
 pub struct AppState {
     pub repo: Mutex<Repository>,
+    pub ai: SidecarManager,
     secrets: SecretStore,
 }
 
@@ -224,6 +255,7 @@ impl AppState {
         let repo = Repository::open(app_data_dir.join("tempo.db"))?;
         Ok(Self {
             repo: Mutex::new(repo),
+            ai: SidecarManager::new()?,
             secrets: SecretStore::new(),
         })
     }

@@ -40,6 +40,14 @@ export interface DryRunDayInput {
   date: string
 }
 
+export interface SuggestSummaryInput {
+  text: string
+}
+
+export interface AiStatus {
+  running: boolean
+}
+
 export interface TicketSuggestion {
   key: string
   summary: string
@@ -80,6 +88,8 @@ export const tauriCommandNames = {
   searchTickets: 'search_tickets',
   pushDay: 'push_day',
   dryRunDay: 'dry_run_day',
+  suggestSummary: 'suggest_summary',
+  aiStatus: 'ai_status',
 } as const
 
 export type TauriCommandName = (typeof tauriCommandNames)[keyof typeof tauriCommandNames]
@@ -124,6 +134,14 @@ export interface TauriCommandContracts {
   dry_run_day: {
     input: DryRunDayInput
     output: DryRunSummary
+  }
+  suggest_summary: {
+    input: SuggestSummaryInput
+    output: string
+  }
+  ai_status: {
+    input: Record<string, never>
+    output: AiStatus
   }
 }
 

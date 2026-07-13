@@ -35,6 +35,24 @@ pub fn merge_settings_value(raw: &Value) -> Settings {
         }
     }
 
+    if let Some(ai) = raw.get("ai").and_then(Value::as_object) {
+        if let Some(value) = ai.get("enabled").and_then(Value::as_bool) {
+            merged.ai.enabled = value;
+        }
+        if let Some(value) = ai.get("binaryPath").and_then(Value::as_str) {
+            merged.ai.binary_path = value.trim().to_string();
+        }
+        if let Some(value) = ai.get("modelPath").and_then(Value::as_str) {
+            merged.ai.model_path = value.trim().to_string();
+        }
+        if let Some(value) = ai.get("idleTimeoutSecs").and_then(Value::as_u64) {
+            merged.ai.idle_timeout_secs = value;
+        }
+        if let Some(value) = ai.get("systemPrompt").and_then(Value::as_str) {
+            merged.ai.system_prompt = value.to_string();
+        }
+    }
+
     merged
 }
 
@@ -166,6 +184,26 @@ mod tests {
         assert!(!merged.connections.jira.api_token_saved);
         assert_eq!(merged.connections.tempo.base_url, "https://api.tempo.io/4");
         assert!(!merged.connections.tempo.api_token_saved);
+    }
+
+    #[test]
+    fn merge_reads_ai_section_and_defaults_when_absent() {
+        let merged = merge_settings_value(&json!({
+            "ai": {
+                "enabled": true,
+                "binaryPath": "  /opt/llama/llama-server  ",
+                "modelPath": "/models/gemma-3-1b-it-Q4_K_M.gguf",
+                "idleTimeoutSecs": 120
+            }
+        }));
+        assert!(merged.ai.enabled);
+        assert_eq!(merged.ai.binary_path, "/opt/llama/llama-server");
+        assert_eq!(merged.ai.model_path, "/models/gemma-3-1b-it-Q4_K_M.gguf");
+        assert_eq!(merged.ai.idle_timeout_secs, 120);
+
+        // Absent ai section falls back to defaults.
+        let defaulted = merge_settings_value(&json!({ "validation": {} }));
+        assert_eq!(defaulted.ai, default_settings().ai);
     }
 
     #[test]

@@ -32,9 +32,36 @@ export interface ConnectionSettings {
   tempo: TempoConnectionSettings
 }
 
+/**
+ * The built-in system prompt shown in Settings and used when the field is
+ * blank. Must stay textually identical to `DEFAULT_SYSTEM_PROMPT` in the Rust
+ * `core::ai` module.
+ */
+export const DEFAULT_AI_SYSTEM_PROMPT =
+  "You write concise Jira/Tempo worklog descriptions. Given a developer's raw " +
+  'notes for one block of time, reply with a plain worklog description: one ' +
+  'sentence, or at most two sentences if there is a lot of detail. Use past ' +
+  'tense, no first person, no preamble, no markdown, and no surrounding quotes. ' +
+  'Reply with the description text only.'
+
+/** Local, on-device AI summarization (llama.cpp sidecar). All non-secret. */
+export interface AiSettings {
+  /** When false the Suggest button reports "not configured". */
+  enabled: boolean
+  /** Path to the llama-server binary (bundled default comes later). */
+  binaryPath: string
+  /** Path to the GGUF model file (default: a lightweight Gemma-3-1b quant). */
+  modelPath: string
+  /** Seconds of inactivity after which the sidecar process is killed. */
+  idleTimeoutSecs: number
+  /** Editable system prompt; blank falls back to DEFAULT_AI_SYSTEM_PROMPT. */
+  systemPrompt: string
+}
+
 export interface Settings {
   validation: ThresholdSettings
   connections: ConnectionSettings
+  ai: AiSettings
 }
 
 export interface SecretUpdates {
@@ -61,6 +88,7 @@ function cloneSettings(settings: Settings): Settings {
       jira: { ...settings.connections.jira },
       tempo: { ...settings.connections.tempo },
     },
+    ai: { ...settings.ai },
   }
 }
 
@@ -76,6 +104,13 @@ export const defaultSettings: Settings = {
       baseUrl: 'https://api.tempo.io/4',
       apiTokenSaved: false,
     },
+  },
+  ai: {
+    enabled: false,
+    binaryPath: '',
+    modelPath: '',
+    idleTimeoutSecs: 300,
+    systemPrompt: DEFAULT_AI_SYSTEM_PROMPT,
   },
 }
 
@@ -131,6 +166,26 @@ export function mergeSettings(raw: unknown, base: Settings = defaultSettings): S
     }
     if (typeof tempoSettings.apiTokenSaved === 'boolean') {
       merged.connections.tempo.apiTokenSaved = tempoSettings.apiTokenSaved
+    }
+  }
+
+  const ai = (raw as { ai?: unknown }).ai
+  if (ai && typeof ai === 'object') {
+    const aiSettings = ai as Partial<AiSettings>
+    if (typeof aiSettings.enabled === 'boolean') {
+      merged.ai.enabled = aiSettings.enabled
+    }
+    if (typeof aiSettings.binaryPath === 'string') {
+      merged.ai.binaryPath = aiSettings.binaryPath.trim()
+    }
+    if (typeof aiSettings.modelPath === 'string') {
+      merged.ai.modelPath = aiSettings.modelPath.trim()
+    }
+    if (typeof aiSettings.idleTimeoutSecs === 'number' && Number.isFinite(aiSettings.idleTimeoutSecs)) {
+      merged.ai.idleTimeoutSecs = Math.max(0, Math.floor(aiSettings.idleTimeoutSecs))
+    }
+    if (typeof aiSettings.systemPrompt === 'string') {
+      merged.ai.systemPrompt = aiSettings.systemPrompt
     }
   }
 
