@@ -4,7 +4,6 @@ import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import TodayIcon from '@mui/icons-material/Today'
 import ExpandIcon from '@mui/icons-material/Expand'
-import UndoIcon from '@mui/icons-material/Undo'
 import AssistantIcon from '@mui/icons-material/Assistant'
 import LinkIcon from '@mui/icons-material/Link'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined'
@@ -334,9 +333,6 @@ const NotebookEditorPanel = memo(function NotebookEditorPanel({
                         }
                     />
                     {syncChip && <Chip size="small" color={syncChip.color} variant="outlined" label={syncChip.label} />}
-                    {isReopenable && (
-                      <Chip size="small" icon={<UndoIcon />} label="tap to continue" variant="outlined" />
-                    )}
                   </Stack>
                 </Stack>
 
