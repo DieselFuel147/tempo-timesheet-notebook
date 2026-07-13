@@ -1,6 +1,6 @@
 import { defaultSettings, mergeSettings, type SaveSettingsInput, type Settings } from '../shared/settings'
-import { tauriCommandNames, type SaveDayInput, type TicketSuggestion, type UpsertEntryInput } from '../shared/tauri-contracts'
-import type { Entry, JiraProfile, NotebookDay, PushSummary, DryRunSummary } from '../shared/types'
+import { tauriCommandNames, type SaveDayInput, type TicketSuggestion } from '../shared/tauri-contracts'
+import type { JiraProfile, NotebookDay, PushSummary, DryRunSummary } from '../shared/types'
 import { invokeCommand, isDesktopRuntime } from './api/desktopApi'
 
 async function parse<T>(res: Response): Promise<T> {
@@ -12,7 +12,6 @@ async function parse<T>(res: Response): Promise<T> {
   return data as T
 }
 
-export type EntrySave = UpsertEntryInput
 export type NotebookDaySave = SaveDayInput
 
 const jsonHeaders = { 'Content-Type': 'application/json' }
@@ -61,24 +60,6 @@ export const api = {
           headers: jsonHeaders,
           body: JSON.stringify(input),
         }).then((r) => parse<NotebookDay>(r)),
-  saveNotes: (date: string, notes: string) =>
-    isDesktopRuntime()
-      ? invokeCommand(tauriCommandNames.saveDayNotes, { date, notes })
-      : fetch(`/api/day/${date}/notes`, {
-          method: 'PUT',
-          headers: jsonHeaders,
-          body: JSON.stringify({ notes }),
-        }).then((r) => parse<{ ok: true }>(r)),
-  saveEntry: (input: EntrySave) =>
-    isDesktopRuntime()
-      ? invokeCommand(tauriCommandNames.upsertEntry, { input })
-      : fetch('/api/entry', { method: 'POST', headers: jsonHeaders, body: JSON.stringify(input) }).then((r) =>
-          parse<Entry>(r),
-        ),
-  deleteEntry: (id: string) =>
-    isDesktopRuntime()
-      ? invokeCommand(tauriCommandNames.deleteEntry, { id })
-      : fetch(`/api/entry/${id}`, { method: 'DELETE' }).then((r) => parse<{ ok: true }>(r)),
   tickets: (query: string) =>
     isDesktopRuntime()
       ? invokeCommand(tauriCommandNames.searchTickets, { query })

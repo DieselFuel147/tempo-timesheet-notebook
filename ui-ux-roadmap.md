@@ -8,10 +8,10 @@
 
 The app already has the right core workflow:
 
-- compact day view with row-based time entry editing
-- live validation with day- and entry-level issues
-- notes side panel
-- dry run preview and push to Tempo
+- notebook-first day view with inferred work blocks
+- live validation with day- and block-level issues
+- mirrored timeline/ruler for boundary editing and merge actions
+- dry run preview and push to Tempo from the notebook day view
 - dark Material UI foundation
 
 What it lacks is mostly:
@@ -27,7 +27,7 @@ What it lacks is mostly:
 - Start with `Phase 1` in order unless dependencies say otherwise.
 - Each roadmap item is written to be implemented in a focused PR/task.
 - Prefer small vertical slices over broad redesigns.
-- Preserve the current compact power-user workflow; polish should not slow entry.
+- Preserve the current compact power-user workflow; polish should not slow notebook capture.
 
 ## Effort / impact scale
 
@@ -43,13 +43,13 @@ These are the best first five improvements for premium feel per unit of effort.
 - Status: completed
 - Effort: `S`
 - Impact: `H`
-- Why: The app already computes total hours, error count, warnings, and unsynced entries, but the user has to infer overall day status from scattered UI.
-- Goal: Add a compact summary header above the main entries list.
+- Why: The app already computes total hours, error count, warnings, and unsynced blocks, but the user has to infer overall day status from scattered UI.
+- Goal: Add a compact summary header above the main notebook workspace.
 - Include:
 - total logged hours
 - target range or remaining hours from validation settings
 - error and warning counts
-- synced vs unsynced count
+- synced vs unsynced block count
 - a clear status pill such as `Ready to push`, `Needs fixes`, or `All synced`
 - Acceptance criteria:
 - the summary is visible without scrolling on desktop
@@ -65,18 +65,17 @@ These are the best first five improvements for premium feel per unit of effort.
 - Status: backlog
 - Effort: `S`
 - Impact: `H`
-- Why: Rows are functional but visually flat. Subtle color identity makes scanning easier and immediately lifts the UI.
-- Goal: Give each ticket or ticket prefix a stable accent color and use it to improve row readability.
+- Why: Blocks are functional but still visually flat in the editor. Subtle color identity makes scanning easier and immediately lifts the UI.
+- Goal: Give each ticket or ticket prefix a stable accent color and use it to improve notebook readability.
 - Include:
-- subtle accent rail or chip color per row
-- visually group consecutive rows for the same ticket/project where practical
+- subtle accent treatment in the notebook cards as well as the ruler blocks
+- visually group nearby blocks for the same ticket/project where practical
 - preserve existing error/warning affordances
 - Acceptance criteria:
 - repeated tickets are visually recognizable at a glance
 - validation colors still win over decorative accents when there is an issue
 - colors remain readable in the current dark theme
 - Likely files:
-- `src/EntryRow.tsx`
 - `src/App.tsx`
 - `src/theme.ts`
 
@@ -88,16 +87,15 @@ These are the best first five improvements for premium feel per unit of effort.
 - Why: Autosave exists, but the UI does not fully communicate whether a change is pending, saved, synced, or failed.
 - Goal: Make saving and syncing feel trustworthy.
 - Include:
-- per-row state such as `Saving...`, `Saved`, `Sync failed`, `Tempo synced`
+- per-block state such as `Saving...`, `Saved`, `Sync failed`, `Tempo synced`
 - day-level `All changes saved` or `Unsaved changes` indicator
 - optional success pulse or subtle state transition after push refresh
 - Acceptance criteria:
-- editing a row produces visible pending/saved feedback
-- save failures are shown at row or day level, not only as generic alerts
-- synced rows remain clearly distinct from merely saved rows
+- editing a block produces visible pending/saved feedback
+- save failures are shown at block or day level, not only as generic alerts
+- synced blocks remain clearly distinct from merely saved blocks
 - Likely files:
 - `src/App.tsx`
-- `src/EntryRow.tsx`
 - `shared/types.ts` only if extra local UI state needs type cleanup
 
 ### UX-04 — Command palette and keyboard shortcuts
@@ -109,7 +107,7 @@ These are the best first five improvements for premium feel per unit of effort.
 - Goal: Add a lightweight command surface for common actions.
 - Include:
 - `Cmd+K` or `Ctrl+K` command palette
-- actions for today/previous/next day, add entry, dry run, push, settings
+- actions for today/previous/next day, focus blank block, dry run, push, settings
 - a first pass of keyboard shortcuts such as `N`, `[`, `]`, and `Cmd+Enter`
 - visible shortcut hints where appropriate
 - Acceptance criteria:
@@ -128,13 +126,13 @@ These are the best first five improvements for premium feel per unit of effort.
 - Why: The app already models a day as time blocks and gaps. A visual timeline would make gaps, overlaps, and pacing instantly understandable.
 - Goal: Add a compact visual timeline for the current day.
 - Include:
-- visible blocks for each entry positioned by start/end time
-- visible gaps between entries
+- visible blocks for each notebook block positioned by start/end time
+- visible gaps between blocks
 - overlap highlighting
-- click-to-focus corresponding row
+- click-to-focus corresponding notebook block
 - start with read-only visualization; dragging can come later
 - Acceptance criteria:
-- the timeline reflects current row edits live
+- the timeline reflects current block edits live
 - gaps and overlaps are easier to detect than in the plain list alone
 - mobile layout degrades gracefully, including the option to hide the timeline
 - Likely files:

@@ -16,26 +16,6 @@ export interface JiraIssueRef {
   summary: string
 }
 
-/** An editable time-log entry as it exists in the UI and local storage. */
-export interface Entry {
-  id: string
-  date: string // YYYY-MM-DD
-  start: string // HH:mm (24-hour)
-  end: string // HH:mm (24-hour)
-  ticketKey: string // e.g. "REACT-1540"
-  summary: string
-  /** Set once the entry has been pushed to Tempo — drives idempotent re-push. */
-  tempoWorklogId?: number | null
-  syncedAt?: string | null
-}
-
-/** A single day: its entries plus freeform notes that never go to Tempo. */
-export interface Day {
-  date: string // YYYY-MM-DD
-  notes: string
-  entries: Entry[]
-}
-
 /**
  * A notebook-first work block. Time is captured as minutes from midnight so the
  * UI can infer and adjust boundaries directly without round-tripping through

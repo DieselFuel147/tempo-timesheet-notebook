@@ -9,4 +9,3 @@ pub mod secret_store;
 pub mod settings;
 pub mod tempo;
 pub mod validation;
-pub mod worklog;

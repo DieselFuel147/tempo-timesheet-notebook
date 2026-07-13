@@ -14,16 +14,6 @@ export interface RouteDeps {
 }
 
 const dateParam = z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) })
-const notesBody = z.object({ notes: z.string() })
-const entryBody = z.object({
-  id: z.string().optional(),
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  start: z.string(),
-  end: z.string(),
-  ticketKey: z.string(),
-  summary: z.string(),
-  sortOrder: z.number().optional(),
-})
 const notebookBlockBody = z.object({
   id: z.string(),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -67,24 +57,6 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     return repo.saveNotebookDay(day)
   })
 
-  app.put('/api/day/:date/notes', async (req) => {
-    const { date } = dateParam.parse(req.params)
-    const { notes } = notesBody.parse(req.body)
-    repo.saveNotes(date, notes)
-    return { ok: true }
-  })
-
-  app.post('/api/entry', async (req) => {
-    const input = entryBody.parse(req.body)
-    return repo.upsertEntry(input)
-  })
-
-  app.delete('/api/entry/:id', async (req) => {
-    const { id } = z.object({ id: z.string() }).parse(req.params)
-    repo.deleteEntry(id)
-    return { ok: true }
-  })
-
   app.get('/api/dates', async () => repo.listDates())
 
   // App settings. The legacy Node path still sources auth from env, so it stores
@@ -111,7 +83,7 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     })
   })
 
-  // Push a whole day to Tempo. Idempotent — already-synced entries are skipped.
+  // Push a whole day to Tempo. Idempotent — already-synced blocks are skipped.
   // ?dryRun=true builds and returns the requests without sending anything.
   app.post('/api/day/:date/push', async (req, reply) => {
     const { date } = dateParam.parse(req.params)
