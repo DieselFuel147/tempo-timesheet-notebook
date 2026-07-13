@@ -1,13 +1,33 @@
+use std::sync::Mutex;
+
 use keyring::Entry;
+use serde::{Deserialize, Serialize};
 
 use crate::error::AppError;
 use crate::state::SecretUpdates;
 
 const SERVICE_NAME: &str = "tempo-timesheet-tool";
+const SECRET_BUNDLE_KEY: &str = "integration-secrets";
 const JIRA_API_TOKEN_KEY: &str = "jira-api-token";
 const TEMPO_API_TOKEN_KEY: &str = "tempo-api-token";
 
-pub struct SecretStore;
+#[derive(Default)]
+struct SecretCache {
+    loaded: bool,
+    secrets: StoredSecrets,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+struct StoredSecrets {
+    #[serde(default)]
+    jira_api_token: String,
+    #[serde(default)]
+    tempo_api_token: String,
+}
+
+pub struct SecretStore {
+    cache: Mutex<SecretCache>,
+}
 
 pub struct SecretPresence {
     pub jira_api_token_saved: bool,
@@ -16,13 +36,16 @@ pub struct SecretPresence {
 
 impl SecretStore {
     pub fn new() -> Self {
-        Self
+        Self {
+            cache: Mutex::new(SecretCache::default()),
+        }
     }
 
     pub fn get_presence(&self) -> Result<SecretPresence, AppError> {
+        let secrets = self.get_stored_secrets()?;
         Ok(SecretPresence {
-            jira_api_token_saved: self.secret_exists(JIRA_API_TOKEN_KEY)?,
-            tempo_api_token_saved: self.secret_exists(TEMPO_API_TOKEN_KEY)?,
+            jira_api_token_saved: !secrets.jira_api_token.is_empty(),
+            tempo_api_token_saved: !secrets.tempo_api_token.is_empty(),
         })
     }
 
@@ -35,51 +58,97 @@ impl SecretStore {
     }
 
     pub fn apply_updates(&self, updates: &SecretUpdates) -> Result<(), AppError> {
+        let mut secrets = self.get_stored_secrets()?;
         if let Some(token) = updates.jira_api_token.as_ref() {
-            self.set_or_clear_secret(JIRA_API_TOKEN_KEY, token)?;
+            secrets.jira_api_token = token.clone();
         }
         if let Some(token) = updates.tempo_api_token.as_ref() {
-            self.set_or_clear_secret(TEMPO_API_TOKEN_KEY, token)?;
+            secrets.tempo_api_token = token.clone();
         }
-        Ok(())
-    }
-
-    fn secret_exists(&self, key: &str) -> Result<bool, AppError> {
-        match self.read_secret(key) {
-            Ok(secret) => Ok(!secret.is_empty()),
-            Err(error) if is_missing_secret_error(&error) => Ok(false),
-            Err(error) => Err(map_keyring_error(key, "read", error)),
-        }
+        self.save_stored_secrets(&secrets)
     }
 
     fn get_secret(&self, key: &str) -> Result<String, AppError> {
-        match self.read_secret(key) {
+        Ok(self.get_stored_secrets()?.secret(key).unwrap_or_default())
+    }
+
+    fn get_stored_secrets(&self) -> Result<StoredSecrets, AppError> {
+        {
+            let cache = self
+                .cache
+                .lock()
+                .map_err(|_| AppError::internal("Failed to lock secret cache"))?;
+            if cache.loaded {
+                return Ok(cache.secrets.clone());
+            }
+        }
+
+        let secrets = self.load_stored_secrets()?;
+        self.write_cache(secrets.clone())?;
+        Ok(secrets)
+    }
+
+    fn load_stored_secrets(&self) -> Result<StoredSecrets, AppError> {
+        match self.entry(SECRET_BUNDLE_KEY).get_password() {
+            Ok(raw) => parse_stored_secrets(&raw),
+            Err(error) if is_missing_secret_error(&error) => self.migrate_legacy_secrets(),
+            Err(error) => Err(map_keyring_error(SECRET_BUNDLE_KEY, "read", error)),
+        }
+    }
+
+    fn migrate_legacy_secrets(&self) -> Result<StoredSecrets, AppError> {
+        let secrets = StoredSecrets {
+            jira_api_token: self.read_legacy_secret(JIRA_API_TOKEN_KEY)?,
+            tempo_api_token: self.read_legacy_secret(TEMPO_API_TOKEN_KEY)?,
+        };
+
+        if secrets.is_empty() {
+            return Ok(secrets);
+        }
+
+        self.save_stored_secrets(&secrets)?;
+        Ok(secrets)
+    }
+
+    fn read_legacy_secret(&self, key: &str) -> Result<String, AppError> {
+        match self.entry(key).get_password() {
             Ok(secret) => Ok(secret),
             Err(error) if is_missing_secret_error(&error) => Ok(String::new()),
             Err(error) => Err(map_keyring_error(key, "read", error)),
         }
     }
 
-    fn set_or_clear_secret(&self, key: &str, value: &str) -> Result<(), AppError> {
-        if value.is_empty() {
-            self.delete_secret(key)
+    fn save_stored_secrets(&self, secrets: &StoredSecrets) -> Result<(), AppError> {
+        if secrets.is_empty() {
+            match self.entry(SECRET_BUNDLE_KEY).delete_credential() {
+                Ok(()) => {}
+                Err(error) if is_missing_secret_error(&error) => {}
+                Err(error) => return Err(map_keyring_error(SECRET_BUNDLE_KEY, "delete", error)),
+            }
         } else {
-            self.entry(key)
-                .set_password(value)
-                .map_err(|error| map_keyring_error(key, "save", error))
+            let raw = serde_json::to_string(secrets).map_err(|error| {
+                AppError::internal("Failed to encode credentials for the OS keychain")
+                    .with_detail(format!("credential={SECRET_BUNDLE_KEY}"))
+                    .with_detail(error.to_string())
+            })?;
+
+            self.entry(SECRET_BUNDLE_KEY)
+                .set_password(&raw)
+                .map_err(|error| map_keyring_error(SECRET_BUNDLE_KEY, "save", error))?;
         }
+
+        self.write_cache(secrets.clone())
     }
 
-    fn delete_secret(&self, key: &str) -> Result<(), AppError> {
-        match self.entry(key).delete_credential() {
-            Ok(()) => Ok(()),
-            Err(error) if is_missing_secret_error(&error) => Ok(()),
-            Err(error) => Err(map_keyring_error(key, "delete", error)),
-        }
-    }
+    fn write_cache(&self, secrets: StoredSecrets) -> Result<(), AppError> {
+        let mut cache = self
+            .cache
+            .lock()
+            .map_err(|_| AppError::internal("Failed to lock secret cache"))?;
 
-    fn read_secret(&self, key: &str) -> Result<String, keyring::Error> {
-        self.entry(key).get_password()
+        cache.loaded = true;
+        cache.secrets = secrets;
+        Ok(())
     }
 
     fn entry(&self, key: &str) -> Entry {
@@ -87,8 +156,34 @@ impl SecretStore {
     }
 }
 
+impl StoredSecrets {
+    fn is_empty(&self) -> bool {
+        self.jira_api_token.is_empty() && self.tempo_api_token.is_empty()
+    }
+
+    fn secret(&self, key: &str) -> Option<String> {
+        match key {
+            JIRA_API_TOKEN_KEY => Some(self.jira_api_token.clone()),
+            TEMPO_API_TOKEN_KEY => Some(self.tempo_api_token.clone()),
+            _ => None,
+        }
+    }
+}
+
 fn is_missing_secret_error(error: &keyring::Error) -> bool {
     matches!(error, keyring::Error::NoEntry)
+}
+
+fn parse_stored_secrets(raw: &str) -> Result<StoredSecrets, AppError> {
+    if raw.trim().is_empty() {
+        return Ok(StoredSecrets::default());
+    }
+
+    serde_json::from_str(raw).map_err(|error| {
+        AppError::internal("Failed to parse credentials from the OS keychain")
+            .with_detail(format!("credential={SECRET_BUNDLE_KEY}"))
+            .with_detail(error.to_string())
+    })
 }
 
 fn map_keyring_error(key: &str, action: &str, error: keyring::Error) -> AppError {
@@ -99,13 +194,25 @@ fn map_keyring_error(key: &str, action: &str, error: keyring::Error) -> AppError
 
 #[cfg(test)]
 mod tests {
-    use super::SecretStore;
+    use super::{parse_stored_secrets, SecretStore, StoredSecrets};
 
     #[test]
-    fn missing_secrets_report_as_absent() {
+    fn secret_store_creation_does_not_touch_system_keychain() {
         let store = SecretStore::new();
-        let presence = store.get_presence().expect("presence should load");
-        assert!(!presence.jira_api_token_saved || presence.jira_api_token_saved);
-        assert!(!presence.tempo_api_token_saved || presence.tempo_api_token_saved);
+        let _ = store;
+    }
+
+    #[test]
+    fn parses_secret_bundle_payload() {
+        let parsed = parse_stored_secrets(r#"{"jira_api_token":"jira","tempo_api_token":"tempo"}"#)
+            .expect("bundle payload should parse");
+
+        assert_eq!(
+            parsed,
+            StoredSecrets {
+                jira_api_token: "jira".into(),
+                tempo_api_token: "tempo".into(),
+            }
+        );
     }
 }

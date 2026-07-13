@@ -1145,7 +1145,7 @@ export function App() {
             >
               <Box>
                 <Typography variant="h5" component="h1">
-                  Timesheet Notebook
+                  Protecht Timesheet Notebook
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
                   {buildLegacyProfileLabel(profile)}
