@@ -5,9 +5,8 @@ import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import TodayIcon from '@mui/icons-material/Today'
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp'
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
-import EditIcon from '@mui/icons-material/Edit'
-import CheckIcon from '@mui/icons-material/Check'
 import UndoIcon from '@mui/icons-material/Undo'
+import AssistantIcon from '@mui/icons-material/Assistant'
 import LinkIcon from '@mui/icons-material/Link'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
@@ -15,13 +14,15 @@ import UploadIcon from '@mui/icons-material/Upload'
 import SyncIcon from '@mui/icons-material/Sync'
 import AccessTimeIcon from '@mui/icons-material/AccessTime'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
+import CalendarMonthIcon from '@mui/icons-material/CalendarMonth'
 import type { DryRunSummary, JiraProfile, NotebookBlock, NotebookDay, PushSummary } from '../shared/types'
 import { defaultSettings, type Settings as AppSettings } from '../shared/settings'
-import { isPersistedNotebookBlock, notebookBlockSummary } from '../shared/notebook'
+import { autoSummary, isPersistedNotebookBlock, notebookBlockSummary } from '../shared/notebook'
 import { validateNotebookDay, type ValidationIssue } from '../shared/validation'
 import { api } from './api'
-import { addDays, formatHours, prettyDate, todayISO } from './dateutil'
+import { addDays, formatHours, minutesToHHmm, prettyDate, todayISO } from './dateutil'
 import { Settings } from './Settings'
+import { readAppearance, writeAppearance, type Appearance } from './appearance'
 import { DatePicker } from '@mui/x-date-pickers/DatePicker'
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider'
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
@@ -49,8 +50,12 @@ import { TicketField } from './TicketField'
 
 const IDLE_THRESHOLD_MS = 3 * 60 * 1000
 const TIMELINE_REFRESH_MS = 1000
-const PX_PER_MINUTE = 2
-const MIN_BLOCK_HEIGHT = 42
+const PX_PER_MINUTE = 4
+// Purely so a zero/one-minute block still has a clickable hit area; must stay
+// small enough that it never causes visual overlap with the next block.
+const MIN_BLOCK_PIXEL_FLOOR = 4
+// Width of the left-hand gutter reserved for "HH:00" hour labels on the ruler.
+const RULER_GUTTER = 44
 const MIN_BLOCK_DURATION_MINUTES = 1
 const DEBUG_TIME_SCALE = Number(import.meta.env.VITE_NOTEBOOK_TIME_SCALE ?? '1')
 
@@ -251,7 +256,7 @@ interface NotebookEditorPanelProps {
   issuesByBlock: Map<string, ValidationIssue[]>
   onTextChange: (id: string, value: string, eventTarget?: HTMLTextAreaElement | null) => void
   onTicketChange: (id: string, ticketId: string) => void
-  onSelectSummaryEdit: (id: string) => void
+  onSummaryChange: (id: string, value: string) => void
   onDeleteBlock: (id: string) => void
   activeReopenableId: string | null
   getTextAreaRef: (id: string) => (element: HTMLTextAreaElement | null) => void
@@ -263,7 +268,7 @@ const NotebookEditorPanel = memo(function NotebookEditorPanel({
   issuesByBlock,
   onTextChange,
   onTicketChange,
-  onSelectSummaryEdit,
+  onSummaryChange,
   onDeleteBlock,
   activeReopenableId,
   getTextAreaRef,
@@ -287,7 +292,6 @@ const NotebookEditorPanel = memo(function NotebookEditorPanel({
           const isBlank = !isPersistedBlock(block)
           const isReopenable = block.id === activeReopenableId
           const isLive = block.id === activeStartedId
-          const summary = notebookBlockSummary(block)
           const syncChip = blockSyncLabel(block)
           const accent = blockColorMap.get(block.id) ?? null
 
@@ -372,18 +376,34 @@ const NotebookEditorPanel = memo(function NotebookEditorPanel({
                   }}
                 />
 
-                <Stack
-                  direction={{ xs: 'column', sm: 'row' }}
-                  spacing={1}
-                  sx={{ alignItems: { xs: 'stretch', sm: 'center' }, justifyContent: 'space-between' }}
-                >
-                  <Typography variant="caption" color="text.secondary">
-                    Summary: {summary}
-                  </Typography>
-                  {!isBlank && (
+                {!isBlank && (
+                  <Stack
+                    direction={{ xs: 'column', sm: 'row' }}
+                    spacing={1}
+                    sx={{ alignItems: { xs: 'stretch', sm: 'center' } }}
+                  >
+                    <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>
+                      Summary
+                    </Typography>
+                    <InputBase
+                      value={block.summaryOverride ?? ''}
+                      placeholder={autoSummary(block.text)}
+                      onChange={(event) => onSummaryChange(block.id, event.target.value)}
+                      fullWidth
+                      sx={{
+                        flex: 1,
+                        border: '1px solid',
+                        borderColor: 'divider',
+                        borderRadius: 1,
+                        px: 1,
+                        py: 0.5,
+                        fontSize: 13,
+                        backgroundColor: 'background.paper',
+                      }}
+                    />
                     <Stack direction="row" spacing={1}>
-                      <Button size="small" startIcon={<EditIcon />} onClick={() => onSelectSummaryEdit(block.id)}>
-                        Edit summary
+                      <Button size="small" startIcon={<AssistantIcon />} disabled title="Coming soon">
+                        Suggest
                       </Button>
                       <Button
                         size="small"
@@ -394,8 +414,8 @@ const NotebookEditorPanel = memo(function NotebookEditorPanel({
                         Delete
                       </Button>
                     </Stack>
-                  )}
-                </Stack>
+                  </Stack>
+                )}
 
                 {issues.length > 0 && (
                   <Stack spacing={0.5}>
@@ -424,7 +444,6 @@ interface TimelinePanelProps {
   nowMinute: number
   expandedId: string | null
   onToggleExpand: (id: string) => void
-  onSelectSummaryEdit: (id: string) => void
   onAbsorbGap: (id: string, direction: 'up' | 'down') => void
   onMerge: (id: string, direction: 'prev' | 'next') => void
   onPinPointerDown: (id: string, edge: 'start' | 'end', event: ReactPointerEvent<HTMLDivElement>) => void
@@ -435,7 +454,6 @@ function TimelinePanel({
   nowMinute,
   expandedId,
   onToggleExpand,
-  onSelectSummaryEdit,
   onAbsorbGap,
   onMerge,
   onPinPointerDown,
@@ -511,44 +529,74 @@ function TimelinePanel({
     return items
   }, [ticketPositions])
 
-  return (
-    <Box sx={{ position: 'relative', minHeight: timelineHeight, pr: 1, pl: 5, py: 2 }}>
-      {Array.from({ length: Math.ceil((maxMinute - minVisibleMinute) / 60) + 2 }).map((_, hourIndex) => {
-        const minute = minVisibleMinute + hourIndex * 60
-        if (minute > maxMinute + 60) return null
-        return (
-          <Box key={minute} sx={{ position: 'absolute', insetInline: 0, top: (minute - minVisibleMinute) * PX_PER_MINUTE + 16 }}>
-            <Typography
-              variant="caption"
-              sx={{ position: 'absolute', left: -40, top: -8, color: 'text.secondary', fontFamily: MONO_FONT, fontSize: 10, fontVariantNumeric: 'tabular-nums' }}
-            >
-              {`${String(Math.floor(minute / 60)).padStart(2, '0')}:00`}
-            </Typography>
-            <Box sx={{ borderTop: '1px solid', borderColor: 'divider' }} />
-          </Box>
-        )
-      })}
+  // Precomputed once so the hour label column and the tick-line column (which
+  // live in two different positioning contexts, see below) stay in lockstep.
+  const hourMarks = useMemo(() => {
+    const marks: Array<{ minute: number; top: number }> = []
+    const count = Math.ceil((maxMinute - minVisibleMinute) / 60) + 2
+    for (let hourIndex = 0; hourIndex < count; hourIndex += 1) {
+      const minute = minVisibleMinute + hourIndex * 60
+      if (minute > maxMinute + 60) break
+      marks.push({ minute, top: (minute - minVisibleMinute) * PX_PER_MINUTE + 16 })
+    }
+    return marks
+  }, [maxMinute, minVisibleMinute])
 
-      {connectors.map((connector) => (
-        <Box
-          key={connector.id}
+  return (
+    <Box sx={{ position: 'relative', minHeight: timelineHeight, pr: 1, py: 2 }}>
+      {/* Hour labels live in the left gutter, positioned directly against this
+          outer box (no padding to fight with) so `left: 0` really means the
+          gutter's own left edge. */}
+      {hourMarks.map(({ minute, top }) => (
+        <Typography
+          key={`label-${minute}`}
+          variant="caption"
           sx={{
             position: 'absolute',
-            top: connector.top,
-            left: 20,
-            height: connector.height,
-            borderLeft: `2px dashed ${connector.color}`,
-            opacity: 0.55,
+            left: 0,
+            top: top - 8,
+            width: RULER_GUTTER - 8,
+            textAlign: 'right',
+            color: 'text.secondary',
+            fontFamily: MONO_FONT,
+            fontSize: 10,
+            fontVariantNumeric: 'tabular-nums',
+            whiteSpace: 'nowrap',
           }}
-        />
+        >
+          {`${String(Math.floor(minute / 60)).padStart(2, '0')}:00`}
+        </Typography>
       ))}
 
-      {timedBlocks.map((timedBlock, index) => {
+      {/* Everything else (ticks, connectors, blocks) sits to the right of the
+          label gutter via this margin-shifted positioning context. */}
+      <Box sx={{ position: 'relative', ml: `${RULER_GUTTER}px` }}>
+        {hourMarks.map(({ minute, top }) => (
+          <Box key={`tick-${minute}`} sx={{ position: 'absolute', insetInline: 0, top }}>
+            <Box sx={{ borderTop: '1px solid', borderColor: 'divider' }} />
+          </Box>
+        ))}
+
+        {connectors.map((connector) => (
+          <Box
+            key={connector.id}
+            sx={{
+              position: 'absolute',
+              top: connector.top,
+              left: 20,
+              height: connector.height,
+              borderLeft: `2px dashed ${connector.color}`,
+              opacity: 0.55,
+            }}
+          />
+        ))}
+
+        {timedBlocks.map((timedBlock, index) => {
         const { block } = timedBlock
         const startMinute = timedBlock.startMinute
         const endMinute = timedBlock.endMinute
         const duration = Math.max(1, endMinute - startMinute)
-        const height = Math.max(MIN_BLOCK_HEIGHT, duration * PX_PER_MINUTE)
+        const height = Math.max(MIN_BLOCK_PIXEL_FLOOR, duration * PX_PER_MINUTE)
         const top = (startMinute - minVisibleMinute) * PX_PER_MINUTE + 16
         const ticketId = block.ticketId.trim()
         const color = ticketId ? ticketColors.get(ticketId) ?? palette[index % palette.length] : palette[index % palette.length]
@@ -570,12 +618,13 @@ function TimelinePanel({
               <Box
                 sx={{
                   position: 'absolute',
-              top: -gapAbove * PX_PER_MINUTE,
+                  top: -gapAbove * PX_PER_MINUTE,
                   left: 4,
                   width: 8,
                   height: Math.max(6, gapAbove * PX_PER_MINUTE),
                   background: `repeating-linear-gradient(135deg, ${theme.ledger.gapStripe}, ${theme.ledger.gapStripe} 4px, transparent 4px, transparent 8px)`,
                   opacity: 0.8,
+                  pointerEvents: 'none',
                 }}
               />
             )}
@@ -701,9 +750,6 @@ function TimelinePanel({
                 {expanded && (
                   <Stack spacing={1} onClick={(event) => event.stopPropagation()}>
                     <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-                      <Button size="small" variant="contained" color="inherit" onClick={() => onSelectSummaryEdit(block.id)}>
-                        Edit summary
-                      </Button>
                       {canMergePrev && (
                         <Button size="small" variant="contained" color="inherit" onClick={() => onMerge(block.id, 'prev')}>
                           Merge with previous
@@ -722,12 +768,18 @@ function TimelinePanel({
           </Box>
         )
       })}
+      </Box>
     </Box>
   )
 }
 
 export function App() {
-  const theme = useAppTheme()
+  const [appearance, setAppearance] = useState<Appearance>(() => readAppearance())
+  const theme = useAppTheme(appearance)
+  const handleAppearanceChange = useCallback((next: Appearance) => {
+    setAppearance(next)
+    writeAppearance(next)
+  }, [])
   const [profile, setProfile] = useState<JiraProfile | null>(null)
   const [date, setDate] = useState(todayISO())
   const [day, setDay] = useState<NotebookDay | null>(null)
@@ -736,8 +788,6 @@ export function App() {
   const [settings, setSettings] = useState<AppSettings>(defaultSettings)
   const [showSettings, setShowSettings] = useState(false)
   const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [summaryEditorId, setSummaryEditorId] = useState<string | null>(null)
-  const [summaryDraft, setSummaryDraft] = useState('')
   const [timelineTick, setTimelineTick] = useState(0)
   const [pushState, setPushState] = useState<PushState>({ mode: 'idle' })
   const [syncOpen, setSyncOpen] = useState(false)
@@ -754,6 +804,18 @@ export function App() {
   const dayTimeAnchorRef = useRef<DayTimeAnchor | null>(null)
   const textAreaRefs = useRef<Record<string, HTMLTextAreaElement | null>>({})
   const textAreaRefCallbacks = useRef(new Map<string, (element: HTMLTextAreaElement | null) => void>())
+
+  // Dedicated anchor for the top-right clock, independent of the currently
+  // viewed date. Must never touch dayTimeAnchorRef (that one has the
+  // side-effecting getCurrentMinute semantics tied to the selected day).
+  const clockAnchorRef = useRef<{ startMs: number; baseMinutes: number } | null>(null)
+  if (!clockAnchorRef.current) {
+    const now = new Date()
+    clockAnchorRef.current = {
+      startMs: Date.now(),
+      baseMinutes: now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60,
+    }
+  }
 
   useEffect(() => {
     dayRef.current = day
@@ -798,8 +860,6 @@ export function App() {
           minuteBase: wallClockMinuteForDate(loaded.date),
         }
         setExpandedId(null)
-        setSummaryEditorId(null)
-        setSummaryDraft('')
         setPushState({ mode: 'idle' })
       })
       .catch((cause) => {
@@ -973,9 +1033,7 @@ export function App() {
       blocks: currentDay.blocks.filter((block) => block.id !== id),
     }))
     setExpandedId((current) => (current === id ? null : current))
-    setSummaryEditorId((current) => (current === id ? null : current))
-    setSummaryDraft((draft) => (summaryEditorId === id ? '' : draft))
-  }, [commitDay, summaryEditorId])
+  }, [commitDay])
 
   const handleAbsorbGap = useCallback((id: string, direction: 'up' | 'down') => {
     commitDay((currentDay) => {
@@ -1035,8 +1093,6 @@ export function App() {
       }
     })
     setExpandedId(null)
-    setSummaryEditorId(null)
-    setSummaryDraft('')
   }, [commitDay, getCurrentMinute])
 
   const handlePinPointerDown = useCallback(
@@ -1091,27 +1147,16 @@ export function App() {
     [commitDay, getCurrentMinute, replaceBlockById],
   )
 
-  const openSummaryEditor = useCallback((id: string) => {
-    const block = day?.blocks.find((candidate) => candidate.id === id)
-    if (!block) return
-    setSummaryEditorId(id)
-    setSummaryDraft(block.summaryOverride ?? notebookBlockSummary(block))
-  }, [day])
-
-  const saveSummaryOverride = useCallback(() => {
-    if (!summaryEditorId) return
-    const summary = summaryDraft.trim()
+  const handleSummaryChange = useCallback((id: string, value: string) => {
     commitDay((currentDay) => ({
       date: currentDay.date,
       blocks: currentDay.blocks.map((block) =>
-        block.id === summaryEditorId
-          ? patchBlock(block, { summaryOverride: summary.length > 0 ? summary : null })
+        block.id === id
+          ? patchBlock(block, { summaryOverride: value.trim().length > 0 ? value : null })
           : block,
       ),
     }))
-    setSummaryEditorId(null)
-    setSummaryDraft('')
-  }, [commitDay, patchBlock, summaryDraft, summaryEditorId])
+  }, [commitDay, patchBlock])
 
   const runPushAction = useCallback(async (action: 'dry-run' | 'push') => {
     setPushState({ mode: 'running', action })
@@ -1130,6 +1175,17 @@ export function App() {
   }, [date])
 
   const nowMinute = day ? getCurrentMinute(day.date) : getCurrentMinute(date)
+  const clockLabel = useMemo(() => {
+    if (DEBUG_TIME_SCALE === 1) {
+      const now = new Date()
+      return minutesToHHmm(now.getHours() * 60 + now.getMinutes())
+    }
+    const anchor = clockAnchorRef.current
+    if (!anchor) return minutesToHHmm(0)
+    const simMinutes = anchor.baseMinutes + ((Date.now() - anchor.startMs) / 60000) * DEBUG_TIME_SCALE
+    return minutesToHHmm(Math.floor(simMinutes))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timelineTick])
   const validationIssues = useMemo(
     () => (day ? validateNotebookDay(persistedNotebookDay(day).blocks) : []),
     [day],
@@ -1175,7 +1231,13 @@ export function App() {
         <CssBaseline />
         <Box sx={{ minHeight: '100vh', bgcolor: 'background.default', py: 4, px: 2 }}>
           <Box sx={{ maxWidth: 900, mx: 'auto' }}>
-            <Settings settings={settings} onSaved={setSettings} onClose={() => setShowSettings(false)} />
+            <Settings
+              settings={settings}
+              onSaved={setSettings}
+              onClose={() => setShowSettings(false)}
+              appearance={appearance}
+              onAppearanceChange={handleAppearanceChange}
+            />
           </Box>
         </Box>
       </ThemeProvider>
@@ -1220,6 +1282,13 @@ export function App() {
                   </Box>
                 </Stack>
                 <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+                  <Typography
+                    variant="subtitle2"
+                    sx={{ fontFamily: MONO_FONT, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}
+                    aria-label="Current time"
+                  >
+                    {clockLabel}
+                  </Typography>
                   <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
                     <Box
                       sx={{
@@ -1269,7 +1338,8 @@ export function App() {
                 <DatePicker
                   value={dayjs(date)}
                   onChange={(newValue) => setDate(newValue?.format('YYYY-MM-DD') || date)}
-                  slotProps={{ textField: { size: 'small', sx: { width: 150, bgcolor: 'background.paper', borderRadius: 1 } } }}
+                  slots={{ openPickerIcon: CalendarMonthIcon }}
+                  slotProps={{ textField: { size: 'small', sx: { width: 200, bgcolor: 'background.paper', borderRadius: 1 } } }}
                 />
                 <IconButton size="small" onClick={() => setDate(addDays(date, 1))} aria-label="Next day">
                   <ChevronRightIcon />
@@ -1408,31 +1478,6 @@ export function App() {
               </Box>
             )}
 
-            {summaryEditorId && (
-              <Box sx={{ px: { xs: 2, md: 3 }, pt: 2 }}>
-                <Paper variant="outlined" sx={{ p: 1.5 }}>
-                  <Stack spacing={1}>
-                    <Typography variant="subtitle2">Edit Tempo summary</Typography>
-                    <InputBase
-                      value={summaryDraft}
-                      onChange={(event) => setSummaryDraft(event.target.value)}
-                      placeholder="Short summary to send to Tempo"
-                      fullWidth
-                      sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, px: 1, py: 0.75, bgcolor: 'background.default' }}
-                    />
-                    <Stack direction="row" spacing={1}>
-                      <Button variant="contained" startIcon={<CheckIcon />} onClick={saveSummaryOverride}>
-                        Save summary
-                      </Button>
-                      <Button variant="text" onClick={() => setSummaryEditorId(null)}>
-                        Cancel
-                      </Button>
-                    </Stack>
-                  </Stack>
-                </Paper>
-              </Box>
-            )}
-
             {loading || !day ? (
               <Box sx={{ p: 3 }}>
                 <Typography variant="body2" color="text.secondary">
@@ -1462,7 +1507,7 @@ export function App() {
                     issuesByBlock={issuesByBlock}
                     onTextChange={handleTextChange}
                     onTicketChange={handleTicketChange}
-                    onSelectSummaryEdit={openSummaryEditor}
+                    onSummaryChange={handleSummaryChange}
                     onDeleteBlock={handleDeleteBlock}
                     activeReopenableId={activeReopenableId}
                     getTextAreaRef={getTextAreaRef}
@@ -1491,7 +1536,6 @@ export function App() {
                     nowMinute={nowMinute}
                     expandedId={expandedId}
                     onToggleExpand={(id) => setExpandedId((current) => (current === id ? null : id))}
-                    onSelectSummaryEdit={openSummaryEditor}
                     onAbsorbGap={handleAbsorbGap}
                     onMerge={handleMerge}
                     onPinPointerDown={handlePinPointerDown}

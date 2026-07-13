@@ -69,6 +69,10 @@ export function TicketField({ value, invalid, adminTicket, onChange, onAdmin }: 
             size="small"
             sx={{
               width: 220,
+              '& .MuiInputBase-root': {
+                backgroundColor: 'background.paper',
+                borderRadius: 1,
+              },
               '& .MuiInputBase-input': {
                 fontFamily: MONO_FONT,
                 fontWeight: 600,

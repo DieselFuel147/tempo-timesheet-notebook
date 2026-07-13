@@ -1,7 +1,18 @@
 import { useState } from 'react'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
-import { Alert, Box, Button, Paper, Stack, TextField, Typography, IconButton } from '@mui/material'
+import {
+  Alert,
+  Box,
+  Button,
+  Paper,
+  Stack,
+  TextField,
+  ToggleButton,
+  ToggleButtonGroup,
+  Typography,
+  IconButton,
+} from '@mui/material'
 import type {
   SecretUpdates,
   Settings as AppSettings,
@@ -11,11 +22,14 @@ import { defaultSettings } from '../shared/settings'
 import { parseTime } from '../shared/validation'
 import { minutesToHHmm } from './dateutil'
 import { api } from './api'
+import type { Appearance } from './appearance'
 
 interface Props {
   settings: AppSettings
   onSaved: (settings: AppSettings) => void
   onClose: () => void
+  appearance: Appearance
+  onAppearanceChange: (value: Appearance) => void
 }
 
 interface DraftState {
@@ -74,7 +88,7 @@ function draftToSecretUpdates(draft: DraftState): SecretUpdates | undefined {
 
 // A general settings page. Today it edits the validation thresholds; new config
 // sections (ports, credentials, admin defaults, …) get their own <fieldset>.
-export function Settings({ settings, onSaved, onClose }: Props) {
+export function Settings({ settings, onSaved, onClose, appearance, onAppearanceChange }: Props) {
   const [draft, setDraft] = useState<DraftState>(() => buildDraft(settings))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -154,6 +168,30 @@ export function Settings({ settings, onSaved, onClose }: Props) {
       </Stack>
 
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+
+      <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+        <Typography variant="h6" component="h3" sx={{ mb: 1 }}>
+          Appearance
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+          Applies immediately on this device. It is not affected by Save settings below.
+        </Typography>
+        <ToggleButtonGroup
+          exclusive
+          value={appearance}
+          onChange={(_event, next: Appearance | null) => {
+            if (next !== null) onAppearanceChange(next)
+          }}
+          aria-label="Appearance"
+        >
+          <ToggleButton value="auto" aria-label="Auto">Auto</ToggleButton>
+          <ToggleButton value="light" aria-label="Light">Light</ToggleButton>
+          <ToggleButton value="dark" aria-label="Dark">Dark</ToggleButton>
+        </ToggleButtonGroup>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+          Auto follows your system setting.
+        </Typography>
+      </Paper>
 
       <Paper variant="outlined" sx={{ p: 2 }}>
         <Typography variant="h6" component="h3" sx={{ mb: 1 }}>
