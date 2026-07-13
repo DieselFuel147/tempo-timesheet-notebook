@@ -3,8 +3,7 @@ import SettingsIcon from '@mui/icons-material/Settings'
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import TodayIcon from '@mui/icons-material/Today'
-import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp'
-import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
+import ExpandIcon from '@mui/icons-material/Expand'
 import UndoIcon from '@mui/icons-material/Undo'
 import AssistantIcon from '@mui/icons-material/Assistant'
 import LinkIcon from '@mui/icons-material/Link'
@@ -58,6 +57,7 @@ const MIN_BLOCK_PIXEL_FLOOR = 4
 const RULER_GUTTER = 44
 const MIN_BLOCK_DURATION_MINUTES = 1
 const DEBUG_TIME_SCALE = Number(import.meta.env.VITE_NOTEBOOK_TIME_SCALE ?? '1')
+const DAY_MINUTES = 24 * 60
 
 // Chronological color assignment with shared-ticket grouping: blocks sharing a
 // non-empty ticket ID adopt the earliest color assigned to that ticket; every
@@ -447,6 +447,7 @@ interface TimelinePanelProps {
   onAbsorbGap: (id: string, direction: 'up' | 'down') => void
   onMerge: (id: string, direction: 'prev' | 'next') => void
   onPinPointerDown: (id: string, edge: 'start' | 'end', event: ReactPointerEvent<HTMLDivElement>) => void
+  onDeselect: () => void
 }
 
 function TimelinePanel({
@@ -457,6 +458,7 @@ function TimelinePanel({
   onAbsorbGap,
   onMerge,
   onPinPointerDown,
+  onDeselect,
 }: TimelinePanelProps) {
   const theme = useTheme()
   const palette = theme.blockColors
@@ -492,7 +494,10 @@ function TimelinePanel({
     return Math.max(0, Math.floor((firstMinute - 30) / 60) * 60)
   }, [nowMinute, timedBlocks])
 
-  const maxMinute = Math.max(nowMinute, ...timedBlocks.map((block) => block.endMinute), minVisibleMinute + 120)
+  const maxMinute = Math.min(
+    DAY_MINUTES,
+    Math.max(minVisibleMinute + 120, ...timedBlocks.map((block) => block.endMinute)),
+  )
   const timelineHeight = Math.max(320, (maxMinute - minVisibleMinute) * PX_PER_MINUTE + 64)
 
   const ticketPositions = useMemo(() => {
@@ -536,14 +541,14 @@ function TimelinePanel({
     const count = Math.ceil((maxMinute - minVisibleMinute) / 60) + 2
     for (let hourIndex = 0; hourIndex < count; hourIndex += 1) {
       const minute = minVisibleMinute + hourIndex * 60
-      if (minute > maxMinute + 60) break
+      if (minute > Math.min(maxMinute + 60, DAY_MINUTES)) break
       marks.push({ minute, top: (minute - minVisibleMinute) * PX_PER_MINUTE + 16 })
     }
     return marks
   }, [maxMinute, minVisibleMinute])
 
   return (
-    <Box sx={{ position: 'relative', minHeight: timelineHeight, pr: 1, py: 2 }}>
+    <Box onClick={onDeselect} sx={{ position: 'relative', minHeight: timelineHeight, pr: 1 }}>
       {/* Hour labels live in the left gutter, positioned directly against this
           outer box (no padding to fight with) so `left: 0` really means the
           gutter's own left edge. */}
@@ -554,7 +559,8 @@ function TimelinePanel({
           sx={{
             position: 'absolute',
             left: 0,
-            top: top - 8,
+            top,
+            transform: 'translateY(-50%)',
             width: RULER_GUTTER - 8,
             textAlign: 'right',
             color: 'text.secondary',
@@ -631,7 +637,10 @@ function TimelinePanel({
 
             <Paper
               elevation={0}
-              onClick={() => block.closed && onToggleExpand(block.id)}
+              onClick={(event) => {
+                event.stopPropagation()
+                if (block.closed) onToggleExpand(block.id)
+              }}
               sx={{
                 position: 'relative',
                 minHeight: height,
@@ -699,7 +708,7 @@ function TimelinePanel({
                     '&:hover': { bgcolor: 'rgba(0,0,0,0.75)' },
                   }}
                 >
-                  <KeyboardArrowUpIcon fontSize="small" />
+                  <ExpandIcon fontSize="small" />
                 </IconButton>
               )}
 
@@ -720,7 +729,51 @@ function TimelinePanel({
                     '&:hover': { bgcolor: 'rgba(0,0,0,0.75)' },
                   }}
                 >
-                  <KeyboardArrowDownIcon fontSize="small" />
+                  <ExpandIcon fontSize="small" />
+                </IconButton>
+              )}
+
+              {canMergePrev && (
+                <IconButton
+                  size="small"
+                  title="Merge with previous"
+                  aria-label="Merge with previous"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onMerge(block.id, 'prev')
+                  }}
+                  sx={{
+                    position: 'absolute',
+                    top: -14,
+                    right: -14,
+                    bgcolor: 'rgba(0,0,0,0.55)',
+                    color: '#fff',
+                    '&:hover': { bgcolor: 'rgba(0,0,0,0.75)' },
+                  }}
+                >
+                  <LinkIcon fontSize="small" />
+                </IconButton>
+              )}
+
+              {canMergeNext && (
+                <IconButton
+                  size="small"
+                  title="Merge with next"
+                  aria-label="Merge with next"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onMerge(block.id, 'next')
+                  }}
+                  sx={{
+                    position: 'absolute',
+                    bottom: -14,
+                    right: -14,
+                    bgcolor: 'rgba(0,0,0,0.55)',
+                    color: '#fff',
+                    '&:hover': { bgcolor: 'rgba(0,0,0,0.75)' },
+                  }}
+                >
+                  <LinkIcon fontSize="small" />
                 </IconButton>
               )}
 
@@ -736,7 +789,6 @@ function TimelinePanel({
                   {ticketId && (
                     <Chip
                       size="small"
-                      icon={ticketCount > 1 ? <LinkIcon sx={{ color: '#fff !important' }} /> : undefined}
                       label={ticketCount > 1 ? `${ticketId} · ${ticketCount}` : ticketId}
                       sx={{ bgcolor: theme.ledger.ticketBadgeBg, color: '#fff', fontFamily: MONO_FONT, fontWeight: 600 }}
                     />
@@ -746,23 +798,6 @@ function TimelinePanel({
                 <Typography variant="body2" sx={{ fontWeight: 600 }}>
                   {summary}
                 </Typography>
-
-                {expanded && (
-                  <Stack spacing={1} onClick={(event) => event.stopPropagation()}>
-                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-                      {canMergePrev && (
-                        <Button size="small" variant="contained" color="inherit" onClick={() => onMerge(block.id, 'prev')}>
-                          Merge with previous
-                        </Button>
-                      )}
-                      {canMergeNext && (
-                        <Button size="small" variant="contained" color="inherit" onClick={() => onMerge(block.id, 'next')}>
-                          Merge with next
-                        </Button>
-                      )}
-                    </Stack>
-                  </Stack>
-                )}
               </Stack>
             </Paper>
           </Box>
@@ -832,11 +867,11 @@ export function App() {
         wallClockStartMs: now,
         minuteBase,
       }
-      return minuteBase
+      return Math.min(DAY_MINUTES, Math.max(0, minuteBase))
     }
 
     const elapsedMinutes = ((now - anchor.wallClockStartMs) / 60000) * DEBUG_TIME_SCALE
-    return Math.floor(anchor.minuteBase + elapsedMinutes)
+    return Math.min(DAY_MINUTES, Math.max(0, Math.floor(anchor.minuteBase + elapsedMinutes)))
   }, [])
 
   useEffect(() => {
@@ -1229,8 +1264,18 @@ export function App() {
     return (
       <ThemeProvider theme={theme}>
         <CssBaseline />
-        <Box sx={{ minHeight: '100vh', bgcolor: 'background.default', py: 4, px: 2 }}>
-          <Box sx={{ maxWidth: 900, mx: 'auto' }}>
+        <Box
+          sx={{
+            height: '100vh',
+            display: 'flex',
+            flexDirection: 'column',
+            bgcolor: 'background.default',
+            overflowY: 'auto',
+            py: 4,
+            px: 2,
+          }}
+        >
+          <Box sx={{ maxWidth: 900, mx: 'auto', width: '100%' }}>
             <Settings
               settings={settings}
               onSaved={setSettings}
@@ -1250,22 +1295,19 @@ export function App() {
       <LocalizationProvider dateAdapter={AdapterDayjs}>
         <Box
           sx={{
-            minHeight: '100vh',
-            bgcolor: 'background.default',
+            height: '100vh',
             display: 'flex',
-            justifyContent: 'center',
-            p: { xs: 1.5, md: 3 },
+            flexDirection: 'column',
+            bgcolor: 'background.default',
           }}
         >
-          <Paper
-            elevation={8}
+          <Box
             sx={{
-              width: '100%',
-              maxWidth: 1200,
-              borderRadius: 2,
-              overflow: 'hidden',
+              flex: 1,
+              minHeight: 0,
               display: 'flex',
               flexDirection: 'column',
+              overflow: 'hidden',
             }}
           >
             <AppBar position="static" elevation={0} sx={{ bgcolor: theme.ledger.barBg, color: theme.ledger.barText }}>
@@ -1485,13 +1527,14 @@ export function App() {
                 </Typography>
               </Box>
             ) : (
-              <Stack direction={{ xs: 'column', md: 'row' }} sx={{ flex: 1, minHeight: 0 }}>
+              <Stack direction={{ xs: 'column', md: 'row' }} sx={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
                 <Box
                   sx={{
                     flex: 1.25,
                     p: 2,
                     overflowY: 'auto',
-                    maxHeight: { xs: 'none', md: 640 },
+                    height: { xs: 'auto', md: '100%' },
+                    minHeight: 0,
                     borderRight: { xs: 'none', md: '1px solid' },
                     borderBottom: { xs: '1px solid', md: 'none' },
                     borderColor: 'divider',
@@ -1517,9 +1560,11 @@ export function App() {
                 <Box
                   sx={{
                     width: { xs: '100%', md: 380 },
+                    flexShrink: { xs: 0, md: 0 },
                     p: 2,
                     overflowY: 'auto',
-                    maxHeight: { xs: 'none', md: 640 },
+                    height: { xs: 'auto', md: '100%' },
+                    minHeight: 0,
                     bgcolor: theme.ledger.rulerPanel,
                   }}
                 >
@@ -1539,6 +1584,7 @@ export function App() {
                     onAbsorbGap={handleAbsorbGap}
                     onMerge={handleMerge}
                     onPinPointerDown={handlePinPointerDown}
+                    onDeselect={() => setExpandedId(null)}
                   />
                 </Box>
               </Stack>
@@ -1569,7 +1615,7 @@ export function App() {
                 tap block · pins + merge
               </Typography>
             </Stack>
-          </Paper>
+          </Box>
         </Box>
       </LocalizationProvider>
     </ThemeProvider>
