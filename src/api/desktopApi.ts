@@ -12,10 +12,6 @@ function toError(error: unknown): Error {
   return new Error('Unknown error')
 }
 
-export function isDesktopRuntime(): boolean {
-  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
-}
-
 export async function invokeCommand<TName extends keyof TauriCommandContracts>(
   command: TName,
   args?: InvokeArgs,

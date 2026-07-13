@@ -1,11 +1,10 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// The React app runs on the Vite dev server (PORT, default 5173) and proxies
-// API calls to the Fastify backend (API_PORT, default 3000), so the browser
-// only ever talks to one origin.
+// The React app is served by Vite in dev and bundled into ../dist for the
+// Tauri shell to load. All backend work goes through native Tauri commands
+// (see src/api/desktopApi.ts) — there is no HTTP backend to proxy to.
 const uiPort = Number(process.env.PORT) || 5173
-const apiPort = Number(process.env.API_PORT) || 3000
 const tauriHost = process.env.TAURI_DEV_HOST
 
 export default defineConfig({
@@ -21,8 +20,5 @@ export default defineConfig({
       : undefined,
     port: uiPort,
     strictPort: true,
-    proxy: {
-      '/api': `http://127.0.0.1:${apiPort}`,
-    },
   },
 })

@@ -192,7 +192,7 @@ export function mergeSettings(raw: unknown, base: Settings = defaultSettings): S
   return merged
 }
 
-/** Validates an incoming thresholds payload (server-side gate for PUT /api/settings). */
+/** Validates a thresholds payload before it is persisted via saveSettings. */
 export const thresholdSchema = z
   .object({
     adminTicket: z

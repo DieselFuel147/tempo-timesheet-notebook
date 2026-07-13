@@ -24,7 +24,7 @@ enrichment, no day-wide summarization.
   as the default, but the model **path is user-configurable** in Settings.
   (Note: the user's preferred *MLX* Gemma build is not runnable under llama.cpp —
   llama.cpp is GGUF-only — so we use the GGUF build of the same model.)
-- The **Fastify/web runtime and other legacy code are being removed**; this
+- The **Fastify/web runtime and other legacy code have been removed**; this
   feature is **desktop (Tauri) only** and adds **no** web/HTTP fallback.
 
 The delegation/migration docs predate the Tauri migration + UI rework; their
@@ -33,9 +33,9 @@ The delegation/migration docs predate the Tauri migration + UI rework; their
 ## Architecture this slots into
 
 - **Desktop-only, single path**: the legacy Fastify `/api` layer and the
-  `isDesktopRuntime()` fork in [src/api.ts](src/api.ts) are slated for removal, so
-  the new AI call uses the Tauri `invoke` path only — **no web branch is added**,
-  and we do not integrate with or extend any legacy server code.
+  `isDesktopRuntime()` fork in [src/api.ts](src/api.ts) have been removed, so
+  the AI call uses the Tauri `invoke` path only — **no web branch exists**,
+  and there is no legacy server code to integrate with or extend.
 - **Rust commands**: modules under [src-tauri/src/commands/](src-tauri/src/commands),
   registered in [lib.rs](src-tauri/src/lib.rs) `generate_handler!`, each returns
   `Result<T, AppError>`; async commands are supported (see
@@ -128,7 +128,7 @@ Add tokio `process` feature in [Cargo.toml](src-tauri/Cargo.toml)
   entry (`output: string`).
 - **[src/api.ts](src/api.ts)**: add `suggestSummary(text)` that calls
   `invokeCommand(tauriCommandNames.suggestSummary, { text })` directly — **no
-  `isDesktopRuntime()` fork, no web branch** (legacy web layer is being removed).
+  `isDesktopRuntime()` fork, no web branch** (the legacy web layer has been removed).
 
 ### 4. Frontend: enable the button
 
@@ -342,5 +342,4 @@ Constraints" and migration Phase 10:
 ## Out of scope
 
 Auto-suggestion on save, day-wide summaries, commit/calendar enrichment, remote
-models, removal of the legacy Fastify/web layer (tracked separately), and the
-Milestone 2 bundling/signing work.
+models, and the Milestone 2 bundling/signing work.

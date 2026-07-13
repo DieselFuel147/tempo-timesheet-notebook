@@ -1,6 +1,6 @@
 # Packaging And Enterprise Release Notes
 
-This project now runs primarily as a Tauri 2 desktop app. The release path should stay simple until native settings and secret storage replace the temporary `.env`-backed credentials model.
+This project runs as a Tauri 2 desktop app. Credentials are entered in-app and stored in the OS keychain via the native secret store; there is no server component and no `.env`-backed credential model.
 
 These notes document the current packaging stance for realistic internal distribution, with macOS first and Windows second.
 
@@ -11,11 +11,11 @@ These notes document the current packaging stance for realistic internal distrib
 - Linux packaging is intentionally not part of the near-term enterprise path
 - Auto-updates are intentionally disabled for now
 - No AI sidecar is bundled today
-- Credentials are still loaded from environment variables during this parity phase
+- Credentials are entered in-app and stored in the OS keychain (no environment variables)
 
 ## Repo State That Helps Packaging Already
 
-- The desktop runtime is Tauri-native; it does not depend on the legacy Fastify server for normal app usage.
+- The runtime is fully Tauri-native; there is no separate server process to package or run.
 - The native database lives under the Tauri app-data directory, not a repo-local path.
 - The frontend capability surface is still minimal (`core:default` only).
 - Updater artifacts are disabled, which keeps signing and release trust simpler during early internal rollout.
@@ -120,9 +120,8 @@ Do not assume it works everywhere. Restricted enterprise environments may requir
 
 ### Credentials And Secrets
 
-- The current runtime still depends on `.env`-backed credentials.
-- That is workable for developer testing, but weak for broad internal distribution.
-- Before wider rollout, move Jira and Tempo tokens to desktop-native settings plus OS-backed secret storage.
+- Jira and Tempo tokens are entered in-app and held in the OS keychain via the native secret store.
+- No credentials live in files or environment variables, which suits internal distribution.
 
 ### Network Egress
 
@@ -217,7 +216,6 @@ This is the first phase that is realistic for broader internal evaluation.
 - no AI runtime packaging
 - no complicated dual-installer Windows strategy in the default config
 - no machine-wide Windows install default
-- no assumptions that `.env` is acceptable for enterprise rollout
 
 ## Pre-Distribution Gate
 
@@ -227,8 +225,7 @@ Before any broad internal distribution, the release owner should be able to answ
 2. Have clean-machine installs been tested on the intended OS versions?
 3. Are Jira and Tempo outbound domains documented for IT review?
 4. Has TLS interception behavior been tested on a managed network?
-5. Is there a documented plan for secrets that does not rely on `.env` for normal users?
-6. Is there a documented statement about fresh-db behavior and lack of old-data migration?
-7. Is there at least a minimal diagnostics/log collection path for support?
+5. Is there a documented statement about fresh-db behavior and lack of old-data migration?
+6. Is there at least a minimal diagnostics/log collection path for support?
 
 If any of those answers is no, keep the release scope narrow.
