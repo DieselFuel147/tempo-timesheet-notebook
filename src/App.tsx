@@ -489,7 +489,7 @@ const NotebookEditorPanel = memo(function NotebookEditorPanel({
                     sx={{ alignItems: { xs: 'stretch', sm: 'center' } }}
                   >
                     <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>
-                      Summary
+                      Time Entry Summary
                     </Typography>
                     <InputBase
                       value={block.summaryOverride ?? ''}
@@ -1643,7 +1643,7 @@ export function App() {
                   <AccessTimeIcon />
                   <Box sx={{ minWidth: 0 }}>
                     <Typography variant="subtitle1" component="h1" sx={{ lineHeight: 1.15, fontWeight: 600 }} noWrap>
-                      Protecht Timesheet Notebook
+                      Timesheet Notebook
                     </Typography>
                     <Typography variant="caption" sx={{ fontFamily: MONO_FONT, color: theme.ledger.headerCaption, display: 'block' }} noWrap>
                       {buildLegacyProfileLabel(profile)}
