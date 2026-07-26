@@ -430,6 +430,11 @@ const NotebookEditorPanel = memo(function NotebookEditorPanel({
                     />
                   </Box>
                   <NotebookTimeFields block={block} onTimeChange={(edge, value) => onTimeChange(block.id, edge, value)} />
+                  {block.startMinute !== null && block.endMinute !== null && (
+                    <Typography variant="caption" color="text.secondary" sx={{ fontFamily: MONO_FONT, whiteSpace: 'nowrap' }}>
+                      {formatHours(block.endMinute - block.startMinute)}
+                    </Typography>
+                  )}
                   <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
                     <Chip
                       size="small"
@@ -915,7 +920,7 @@ function TimelinePanel({
                       block.closed
                         ? `${String(Math.floor(endMinute / 60)).padStart(2, '0')}:${String(endMinute % 60).padStart(2, '0')}`
                         : 'now'
-                    }`}
+                    }  ·  ${formatHours(block.closed ? endMinute - startMinute : nowMinute - startMinute)}`}
                   </Typography>
                   {ticketId && (
                     <Chip
