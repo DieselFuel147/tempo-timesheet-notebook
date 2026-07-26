@@ -324,7 +324,7 @@ interface NotebookTimeFieldsProps {
 function NotebookTimeFields({ block, onTimeChange }: NotebookTimeFieldsProps) {
   const startValue = block.startMinute === null ? '' : minutesToHHmm(block.startMinute)
   const endValue = block.endMinute === null ? '' : minutesToHHmm(block.endMinute)
-  const timeFieldSx = { width: 104, '& input': { fontFamily: MONO_FONT, fontSize: 13, py: 0.5 } }
+  const timeFieldSx = { width: 104, '& input': { fontFamily: MONO_FONT, fontSize: 13, py: 0.5, px: 0.5, textAlign: 'center', lineHeight: 1 } }
   return (
     <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', flexShrink: 0 }}>
       <TextField
