@@ -1,12 +1,12 @@
 import type { NotebookBlock, WorklogInput } from './types'
 
-export const DEFAULT_AUTO_SUMMARY_WORDS = 7
+export const MAX_SUMMARY_LENGTH = 200
 
-export function autoSummary(text: string, wordLimit = DEFAULT_AUTO_SUMMARY_WORDS): string {
-  const words = text.trim().split(/\s+/).filter(Boolean)
-  if (!words.length) return 'Untitled entry'
-  const short = words.slice(0, wordLimit).join(' ')
-  return short + (words.length > wordLimit ? '…' : '')
+export function autoSummary(text: string, maxChars = MAX_SUMMARY_LENGTH): string {
+  const trimmed = text.trim()
+  if (!trimmed.length) return 'Untitled entry'
+  const short = trimmed.slice(0, maxChars)
+  return short + (trimmed.length > maxChars ? '…' : '')
 }
 
 export function notebookBlockSummary(block: NotebookBlock): string {

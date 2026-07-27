@@ -19,7 +19,7 @@ import { defaultSettings, type Settings as AppSettings } from '../shared/setting
 import { autoSummary, isPersistedNotebookBlock, notebookBlockSummary } from '../shared/notebook'
 import { parseTime, validateNotebookDay, type ValidationIssue } from '../shared/validation'
 import { api } from './api'
-import { addDays, formatHours, minutesToHHmm, prettyDate, todayISO } from './dateutil'
+import { addDays, formatHours, minutesToHHmm, parseDuration, prettyDate, todayISO } from './dateutil'
 import { Settings } from './Settings'
 import { readAppearance, writeAppearance, type Appearance } from './appearance'
 import { DatePicker } from '@mui/x-date-pickers/DatePicker'
@@ -316,15 +316,41 @@ function NotebookTicketField({ block, invalid, adminTicket, onTicketChange }: No
 interface NotebookTimeFieldsProps {
   block: NotebookBlock
   onTimeChange: (edge: 'start' | 'end', value: string) => void
+  onDurationChange: (value: string) => void
 }
 
 // Compact, editable start–end times for retroactive entry. Native "HH:mm"
 // inputs map straight onto the block's minutes-from-midnight model; the end is
 // disabled until a start exists so the block never lands in an invalid state.
-function NotebookTimeFields({ block, onTimeChange }: NotebookTimeFieldsProps) {
+function NotebookTimeFields({ block, onTimeChange, onDurationChange }: NotebookTimeFieldsProps) {
   const startValue = block.startMinute === null ? '' : minutesToHHmm(block.startMinute)
   const endValue = block.endMinute === null ? '' : minutesToHHmm(block.endMinute)
+  const durationMinutes = block.startMinute !== null && block.endMinute !== null
+    ? Math.max(0, block.endMinute - block.startMinute)
+    : null
+  const displayDuration = durationMinutes !== null ? formatHours(durationMinutes) : ''
+  const [isEditing, setIsEditing] = useState(false)
+  const [editValue, setEditValue] = useState('')
   const timeFieldSx = { width: 104, '& input': { fontFamily: MONO_FONT, fontSize: 13, py: 0.5, px: 0.5, textAlign: 'center', lineHeight: 1 } }
+  const durationFieldSx = { width: 72, '& input': { fontFamily: MONO_FONT, fontSize: 13, py: 0.5, px: 0.5, textAlign: 'center', lineHeight: 1 } }
+
+  useEffect(() => {
+    setEditValue(displayDuration)
+  }, [block.id, displayDuration])
+
+  const handleDurationBlur = useCallback(() => {
+    const parsed = parseDuration(editValue)
+    if (parsed !== null && parsed > 0) {
+      onDurationChange(editValue)
+    }
+    setIsEditing(false)
+  }, [editValue, block.id, onDurationChange])
+
+  const handleDurationFocus = useCallback(() => {
+    setIsEditing(true)
+    setEditValue(displayDuration)
+  }, [displayDuration])
+
   return (
     <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', flexShrink: 0 }}>
       <TextField
@@ -347,6 +373,17 @@ function NotebookTimeFields({ block, onTimeChange }: NotebookTimeFieldsProps) {
         slotProps={{ htmlInput: { 'aria-label': 'End time' } }}
         sx={timeFieldSx}
       />
+      <TextField
+        size="small"
+        value={isEditing ? editValue : displayDuration}
+        placeholder="0m"
+        onChange={(event) => setEditValue(event.target.value)}
+        onBlur={isEditing ? handleDurationBlur : undefined}
+        onFocus={handleDurationFocus}
+        disabled={block.startMinute === null}
+        slotProps={{ htmlInput: { 'aria-label': 'Duration' } }}
+        sx={durationFieldSx}
+      />
     </Stack>
   )
 }
@@ -358,6 +395,7 @@ interface NotebookEditorPanelProps {
   onTextChange: (id: string, value: string, eventTarget?: HTMLTextAreaElement | null) => void
   onTicketChange: (id: string, ticketId: string) => void
   onTimeChange: (id: string, edge: 'start' | 'end', value: string) => void
+  onDurationChange: (id: string, value: string) => void
   onSummaryChange: (id: string, value: string) => void
   onSuggest: (id: string) => void
   suggestingId: string | null
@@ -373,6 +411,7 @@ const NotebookEditorPanel = memo(function NotebookEditorPanel({
   onTextChange,
   onTicketChange,
   onTimeChange,
+  onDurationChange,
   onSummaryChange,
   onSuggest,
   suggestingId,
@@ -429,7 +468,7 @@ const NotebookEditorPanel = memo(function NotebookEditorPanel({
                       onTicketChange={(ticketId) => onTicketChange(block.id, ticketId)}
                     />
                   </Box>
-                  <NotebookTimeFields block={block} onTimeChange={(edge, value) => onTimeChange(block.id, edge, value)} />
+                  <NotebookTimeFields block={block} onTimeChange={(edge, value) => onTimeChange(block.id, edge, value)} onDurationChange={(value) => onDurationChange(block.id, value)} />
                   {block.startMinute !== null && block.endMinute !== null && (
                     <Typography variant="caption" color="text.secondary" sx={{ fontFamily: MONO_FONT, whiteSpace: 'nowrap' }}>
                       {formatHours(block.endMinute - block.startMinute)}
@@ -1346,6 +1385,22 @@ export function App() {
     }))
   }, [commitDay, patchBlock])
 
+  const handleDurationChange = useCallback((id: string, value: string) => {
+    const durationMinutes = parseDuration(value)
+    commitDay((currentDay) => ({
+      date: currentDay.date,
+      blocks: currentDay.blocks.map((block) => {
+        if (block.id !== id) return block
+        if (block.startMinute === null) return block
+        if (durationMinutes === null || durationMinutes <= 0) {
+          return patchBlock(block, { endMinute: null, closed: false })
+        }
+        const endMinute = Math.min(block.startMinute + durationMinutes, 1439)
+        return patchBlock(block, { endMinute, closed: true })
+      }),
+    }))
+  }, [commitDay, patchBlock])
+
   const handleDeleteBlock = useCallback((id: string) => {
     commitDay((currentDay) => ({
       date: currentDay.date,
@@ -1884,6 +1939,7 @@ export function App() {
                     onTextChange={handleTextChange}
                     onTicketChange={handleTicketChange}
                     onTimeChange={handleTimeChange}
+                    onDurationChange={handleDurationChange}
                     onSummaryChange={handleSummaryChange}
                     onSuggest={handleSuggest}
                     suggestingId={suggestingId}

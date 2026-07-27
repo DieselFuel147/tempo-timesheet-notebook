@@ -40,3 +40,17 @@ export function formatHours(minutes: number): string {
   if (m === 0) return `${h}h`
   return `${h}h ${m}m`
 }
+
+/** "1h 30m" | "90m" | "2h" | "90" | "" -> total minutes, or null for invalid/empty. */
+export function parseDuration(input: string): number | null {
+  const trimmed = input.trim()
+  if (trimmed === '') return null
+  const hMatch = trimmed.match(/(\d+)\s*h/i)
+  const mMatch = trimmed.match(/(\d+)\s*m/i)
+  const hours = hMatch ? parseInt(hMatch[1], 10) : 0
+  const minutes = mMatch ? parseInt(mMatch[1], 10) : 0
+  if (hours > 0 || minutes > 0) return hours * 60 + minutes
+  const plainNum = parseInt(trimmed, 10)
+  if (Number.isFinite(plainNum) && plainNum > 0) return plainNum
+  return null
+}
