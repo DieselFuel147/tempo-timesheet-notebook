@@ -283,7 +283,7 @@ mod tests {
         let config = default_validation_config();
         assert_eq!(
             validate_notebook_block(
-                &block(|block| block.ticket_id = "ADMIN-TICKET".into()),
+                &block(|block| block.ticket_id = "ADMINTICKET-123".into()),
                 &config,
             ),
             Vec::new()

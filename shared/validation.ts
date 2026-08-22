@@ -39,7 +39,7 @@ export interface ValidationConfig {
 }
 
 export const defaultConfig: ValidationConfig = {
-  adminTicket: 'ADMIN-TICKET',
+  adminTicket: 'ADMINTICKET-123',
   ticketPattern: /^[A-Z][A-Z0-9]*-\d+$/,
   workdayStartMin: 8 * 60, // 08:00
   workdayEndMin: 18 * 60, // 18:00

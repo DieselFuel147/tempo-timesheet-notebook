@@ -94,7 +94,7 @@ pub struct ThresholdSettings {
 impl Default for ThresholdSettings {
     fn default() -> Self {
         Self {
-            admin_ticket: "ADMIN-TICKET".into(),
+            admin_ticket: "ADMINTICKET-123".into(),
             workday_start_min: 8 * 60,
             workday_end_min: 18 * 60,
             min_entry_minutes: 10,
