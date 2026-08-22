@@ -1,7 +1,7 @@
 {
   "name": "tempo-timesheet-tool",
   "private": true,
-  "version": "0.0.1-alpha",
+  "version": "0.0.2-alpha",
   "type": "module",
   "description": "Structured day-at-a-glance time logging that pushes cleanly to Tempo via the API.",
   "scripts": {
