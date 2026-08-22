@@ -619,6 +619,7 @@ interface TimelinePanelProps {
   onAbsorbGap: (id: string, direction: 'up' | 'down') => void
   onMerge: (id: string, direction: 'prev' | 'next') => void
   onPinPointerDown: (id: string, edge: 'start' | 'end', event: ReactPointerEvent<HTMLDivElement>) => void
+  onBlockPointerDown: (id: string, event: ReactPointerEvent<HTMLDivElement>) => void
   onDeselect: () => void
 }
 
@@ -628,11 +629,15 @@ const TEMPO_LANE_WIDTH = 20
 
 // Timeline blocks are sized purely by their start/end times, so their summary
 // text must fit whatever room is left instead of stretching the block. These
-// approximate the chrome around the summary (paper padding 2x8, the time/chip
-// row, and the stack gap) to derive a safe line count; any rounding residue is
-// absorbed by overflow clipping rather than growing the block.
+// approximate the chrome around the summary (paper padding 2x8, the stacked
+// time + ticket rows, and the stack gaps) to derive a safe line count; any
+// rounding residue is absorbed by overflow clipping rather than growing the
+// block.
 const SUMMARY_LINE_HEIGHT_PX = 20
-const TIMELINE_BLOCK_CHROME_PX = 42
+const TIMELINE_BLOCK_CHROME_PX = 64
+// Pointer travel (px) before a press on a block body counts as a drag rather
+// than a click.
+const DRAG_START_THRESHOLD_PX = 4
 
 function TimelinePanel({
   blocks,
@@ -644,6 +649,7 @@ function TimelinePanel({
   onAbsorbGap,
   onMerge,
   onPinPointerDown,
+  onBlockPointerDown,
   onDeselect,
 }: TimelinePanelProps) {
   const theme = useTheme()
@@ -830,6 +836,7 @@ function TimelinePanel({
 
             <Paper
               elevation={0}
+              onPointerDown={(event) => onBlockPointerDown(block.id, event)}
               onClick={(event) => {
                 event.stopPropagation()
                 if (block.closed) onToggleExpand(block.id)
@@ -843,7 +850,8 @@ function TimelinePanel({
                 bgcolor: color,
                 color: '#F4F5EF',
                 borderRadius: 1.5,
-                cursor: block.closed ? 'pointer' : 'default',
+                cursor: block.closed ? 'grab' : 'default',
+                touchAction: 'none',
                 boxShadow: expanded
                   ? `0 0 0 2px ${theme.palette.text.primary}`
                   : '0 2px 5px rgba(0,0,0,0.18)',
@@ -889,6 +897,7 @@ function TimelinePanel({
               {showAbsorbUp && (
                 <IconButton
                   size="small"
+                  onPointerDown={(event) => event.stopPropagation()}
                   onClick={(event) => {
                     event.stopPropagation()
                     onAbsorbGap(block.id, 'up')
@@ -910,6 +919,7 @@ function TimelinePanel({
               {showAbsorbDown && (
                 <IconButton
                   size="small"
+                  onPointerDown={(event) => event.stopPropagation()}
                   onClick={(event) => {
                     event.stopPropagation()
                     onAbsorbGap(block.id, 'down')
@@ -933,6 +943,7 @@ function TimelinePanel({
                   size="small"
                   title="Merge with previous"
                   aria-label="Merge with previous"
+                  onPointerDown={(event) => event.stopPropagation()}
                   onClick={(event) => {
                     event.stopPropagation()
                     onMerge(block.id, 'prev')
@@ -955,6 +966,7 @@ function TimelinePanel({
                   size="small"
                   title="Merge with next"
                   aria-label="Merge with next"
+                  onPointerDown={(event) => event.stopPropagation()}
                   onClick={(event) => {
                     event.stopPropagation()
                     onMerge(block.id, 'next')
@@ -973,8 +985,15 @@ function TimelinePanel({
               )}
 
               <Stack spacing={0.75} sx={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
-                <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
-                  <Typography variant="caption" sx={{ fontFamily: MONO_FONT, fontSize: 10, fontVariantNumeric: 'tabular-nums', color: 'rgba(255,255,255,0.9)' }}>
+                {/* Time and ticket sit side by side while the block is wide
+                    enough; the non-wrapping time text wins and the chip wraps
+                    below it as the block narrows (the panel is user-resizable,
+                    so this adapts continuously without breakpoints). */}
+                <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+                  <Typography
+                    variant="caption"
+                    sx={{ fontFamily: MONO_FONT, fontSize: 10, fontVariantNumeric: 'tabular-nums', color: 'rgba(255,255,255,0.9)', whiteSpace: 'nowrap' }}
+                  >
                     {`${String(Math.floor(startMinute / 60)).padStart(2, '0')}:${String(startMinute % 60).padStart(2, '0')} - ${
                       block.closed
                         ? `${String(Math.floor(endMinute / 60)).padStart(2, '0')}:${String(endMinute % 60).padStart(2, '0')}`
@@ -1102,6 +1121,9 @@ export function App() {
   const dayRef = useRef<NotebookDay | null>(null)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastActivityRef = useRef<number | null>(null)
+  // Set while a timeline block body drag is in flight; the click that follows
+  // pointerup must not toggle that block's expansion.
+  const justDraggedIdRef = useRef<string | null>(null)
   const dayTimeAnchorRef = useRef<DayTimeAnchor | null>(null)
   const textAreaRefs = useRef<Record<string, HTMLTextAreaElement | null>>({})
   const textAreaRefCallbacks = useRef(new Map<string, (element: HTMLTextAreaElement | null) => void>())
@@ -1561,6 +1583,80 @@ export function App() {
     },
     [commitDay, getCurrentMinute, replaceBlockById],
   )
+
+  // Whole-block drag: shifts both edges by the same delta so the duration is
+  // preserved, clamped against neighbouring blocks and the day bounds. A
+  // genuine drag suppresses the click that would otherwise toggle expansion.
+  const handleTimelineBlockPointerDown = useCallback(
+    (id: string, event: ReactPointerEvent<HTMLDivElement>) => {
+      if (event.button !== 0) return
+      // Interactive controls inside the block (pins, merge/absorb buttons)
+      // handle their own pointer events; only the body starts a move.
+      if ((event.target as HTMLElement).closest('button')) return
+
+      const currentDay = dayRef.current
+      if (!currentDay) return
+      const timedBlocks = getTimedBlocks(currentDay.blocks, getCurrentMinute(currentDay.date))
+      const timedIndex = timedBlocks.findIndex((item) => item.block.id === id)
+      if (timedIndex === -1) return
+
+      const current = timedBlocks[timedIndex]
+      if (!current.block.closed) return
+      const startMinute = current.startMinute
+      const duration = current.endMinute - current.startMinute
+      const previous = timedBlocks[timedIndex - 1]
+      const next = timedBlocks[timedIndex + 1]
+      const minDelta = (previous?.endMinute ?? 0) - startMinute
+      const maxDelta = (next?.startMinute ?? DAY_MINUTES) - current.endMinute
+      const pointerStart = event.clientY
+      let moved = false
+      let lastApplied: number | null = null
+
+      event.preventDefault()
+
+      const onMove = (moveEvent: PointerEvent) => {
+        const offsetY = moveEvent.clientY - pointerStart
+        if (!moved && Math.abs(offsetY) < DRAG_START_THRESHOLD_PX) return
+        moved = true
+        justDraggedIdRef.current = id
+
+        const applied = Math.min(Math.max(Math.round(offsetY / PX_PER_MINUTE), minDelta), maxDelta)
+        if (applied === lastApplied) return
+        lastApplied = applied
+        commitDay((dayState) => ({
+          date: dayState.date,
+          blocks: replaceBlockById(dayState.blocks, id, (block) =>
+            markBlockDirty({ ...block, startMinute: startMinute + applied, endMinute: startMinute + applied + duration }),
+          ),
+        }))
+      }
+
+      const onUp = () => {
+        window.removeEventListener('pointermove', onMove)
+        window.removeEventListener('pointerup', onUp)
+        // The click event (if any) fires after pointerup; clear the suppression
+        // flag on a later tick so a click that never arrives can't swallow the
+        // next legitimate one.
+        window.setTimeout(() => {
+          if (justDraggedIdRef.current === id) justDraggedIdRef.current = null
+        }, 0)
+      }
+
+      window.addEventListener('pointermove', onMove)
+      window.addEventListener('pointerup', onUp)
+    },
+    [commitDay, getCurrentMinute, replaceBlockById],
+  )
+
+  // Click handler for timeline blocks: ignores the synthetic click that follows
+  // a block drag so dragging never toggles expansion.
+  const handleTimelineBlockClick = useCallback((id: string) => {
+    if (justDraggedIdRef.current === id) {
+      justDraggedIdRef.current = null
+      return
+    }
+    setExpandedId((current) => (current === id ? null : id))
+  }, [])
 
   const handleSummaryChange = useCallback((id: string, value: string) => {
     commitDay((currentDay) => ({
@@ -2115,10 +2211,11 @@ export function App() {
                     expandedId={expandedId}
                     tempoWorklogs={visibleTempoWorklogs}
                     localWorklogIds={localWorklogIds}
-                    onToggleExpand={(id) => setExpandedId((current) => (current === id ? null : id))}
+                    onToggleExpand={handleTimelineBlockClick}
                     onAbsorbGap={handleAbsorbGap}
                     onMerge={handleMerge}
                     onPinPointerDown={handlePinPointerDown}
+                    onBlockPointerDown={handleTimelineBlockPointerDown}
                     onDeselect={() => setExpandedId(null)}
                   />
                 </Box>
