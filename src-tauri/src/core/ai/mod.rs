@@ -18,7 +18,7 @@ use crate::state::Settings;
 /// textually identical to `DEFAULT_AI_SYSTEM_PROMPT` in `shared/settings.ts`.
 pub const DEFAULT_SYSTEM_PROMPT: &str = "You write concise Jira/Tempo worklog \
 descriptions. Given a developer's raw notes for one block of time, reply with a \
-plain worklog description: one sentence, or at most two sentences if there is a \
+plain worklog description: one to two sentences, or at most a paragraph if there is a \
 lot of detail. Use past tense, no first person, no preamble, no markdown, and no \
 surrounding quotes. Reply with the description text only.";
 
