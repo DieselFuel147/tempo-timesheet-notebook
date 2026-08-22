@@ -57,6 +57,9 @@ CREATE TABLE IF NOT EXISTS notebook_blocks (
 );
 CREATE INDEX IF NOT EXISTS idx_notebook_blocks_date ON notebook_blocks(date);
 "#,
+    r#"
+ALTER TABLE notebook_blocks ADD COLUMN manual_end INTEGER;
+"#,
 ];
 
 pub fn apply_migrations(connection: &mut Connection) -> rusqlite::Result<()> {

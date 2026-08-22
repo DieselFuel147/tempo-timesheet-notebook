@@ -258,6 +258,7 @@ mod tests {
             closed: true,
             ticket_id: "PEA-777".into(),
             summary_override: None,
+            manual_end: None,
             tempo_worklog_id: None,
             synced_at: None,
         };

@@ -61,6 +61,11 @@ pub struct NotebookBlock {
     pub closed: bool,
     pub ticket_id: String,
     pub summary_override: Option<String>,
+    /// True when the user explicitly set the end time (time field, duration,
+    /// or the "logging now" pill). Text edits must never reopen such blocks;
+    /// absent/null means auto-closed (idle timeout), which may still reopen.
+    #[serde(default)]
+    pub manual_end: Option<bool>,
     pub tempo_worklog_id: Option<i64>,
     pub synced_at: Option<String>,
 }

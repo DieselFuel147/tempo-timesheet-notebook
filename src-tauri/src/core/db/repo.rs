@@ -28,6 +28,7 @@ struct NotebookBlockRow {
     closed: bool,
     ticket_id: String,
     summary_override: Option<String>,
+    manual_end: Option<bool>,
     tempo_worklog_id: Option<i64>,
     synced_at: Option<String>,
 }
@@ -50,6 +51,7 @@ fn row_to_notebook_block(row: NotebookBlockRow) -> NotebookBlock {
         closed: row.closed,
         ticket_id: row.ticket_id,
         summary_override: row.summary_override,
+        manual_end: row.manual_end,
         tempo_worklog_id: row.tempo_worklog_id,
         synced_at: row.synced_at,
     }
@@ -89,7 +91,7 @@ impl Repository {
         let mut statement = self
             .connection
             .prepare(
-                "SELECT id, date, start_minute, end_minute, text, closed, ticket_id, summary_override, tempo_worklog_id, synced_at
+                "SELECT id, date, start_minute, end_minute, text, closed, ticket_id, summary_override, manual_end, tempo_worklog_id, synced_at
                  FROM notebook_blocks
                  WHERE date = ?1
                  ORDER BY sort_order, COALESCE(start_minute, 2147483647), id",
@@ -107,8 +109,9 @@ impl Repository {
                     closed: row.get::<_, i64>(5)? != 0,
                     ticket_id: row.get(6)?,
                     summary_override: row.get(7)?,
-                    tempo_worklog_id: row.get(8)?,
-                    synced_at: row.get(9)?,
+                    manual_end: row.get(8)?,
+                    tempo_worklog_id: row.get(9)?,
+                    synced_at: row.get(10)?,
                 })
             })
             .map_err(|error| db_error(format!("Failed to query notebook blocks for {date}: {error}")))?
@@ -148,8 +151,8 @@ impl Repository {
                 .execute(
                     "INSERT INTO notebook_blocks (
                         id, date, start_minute, end_minute, text, closed, ticket_id, summary_override,
-                        sort_order, tempo_worklog_id, synced_at, updated_at
-                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                        manual_end, sort_order, tempo_worklog_id, synced_at, updated_at
+                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
                     params![
                         &block.id,
                         &day.date,
@@ -159,6 +162,7 @@ impl Repository {
                         if block.closed { 1 } else { 0 },
                         &block.ticket_id,
                         &block.summary_override,
+                        block.manual_end,
                         sort_order as i64,
                         block.tempo_worklog_id,
                         &block.synced_at,
@@ -332,6 +336,7 @@ mod tests {
                     closed: true,
                     ticket_id: "ABC-123".into(),
                     summary_override: Some("Test entry".into()),
+                    manual_end: None,
                     tempo_worklog_id: None,
                     synced_at: None,
                 }],
@@ -357,6 +362,7 @@ mod tests {
                 closed: true,
                 ticket_id: "ABC-123".into(),
                 summary_override: Some("Test entry".into()),
+                manual_end: None,
                 tempo_worklog_id: None,
                 synced_at: None,
             }],

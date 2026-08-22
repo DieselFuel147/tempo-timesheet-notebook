@@ -30,6 +30,13 @@ export interface NotebookBlock {
   closed: boolean
   ticketId: string
   summaryOverride?: string | null
+  /**
+   * True when the user explicitly set the end time (time field, duration, or
+   * the "logging now" pill). Text edits never reopen such blocks; absent/null
+   * means auto-closed (e.g. idle timeout), which may still be reopened by
+   * continuing to type.
+   */
+  manualEnd?: boolean | null
   /** Set once the block has been pushed to Tempo — drives idempotent re-push. */
   tempoWorklogId?: number | null
   syncedAt?: string | null

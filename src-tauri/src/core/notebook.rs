@@ -77,6 +77,7 @@ mod tests {
             closed: true,
             ticket_id: String::from("PEA-1"),
             summary_override: None,
+            manual_end: None,
             tempo_worklog_id: None,
             synced_at: None,
         };

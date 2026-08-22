@@ -161,6 +161,7 @@ function cloneBlock(block: NotebookBlock): NotebookBlock {
   return {
     ...block,
     summaryOverride: block.summaryOverride ?? null,
+    manualEnd: block.manualEnd ?? false,
     tempoWorklogId: block.tempoWorklogId ?? null,
     syncedAt: block.syncedAt ?? null,
   }
@@ -405,6 +406,7 @@ interface NotebookEditorPanelProps {
   onDurationChange: (id: string, value: string) => void
   onSummaryChange: (id: string, value: string) => void
   onSuggest: (id: string) => void
+  onCloseLiveBlock: (id: string) => void
   suggestingId: string | null
   onDeleteBlock: (id: string) => void
   activeReopenableId: string | null
@@ -422,6 +424,7 @@ const NotebookEditorPanel = memo(function NotebookEditorPanel({
   onDurationChange,
   onSummaryChange,
   onSuggest,
+  onCloseLiveBlock,
   suggestingId,
   onDeleteBlock,
   activeReopenableId,
@@ -493,6 +496,14 @@ const NotebookEditorPanel = memo(function NotebookEditorPanel({
                             ? 'closed'
                             : 'logging now'
                         }
+                      // Live entries close on pill click, stamping the end at the current minute.
+                      onClick={isLive ? () => onCloseLiveBlock(block.id) : undefined}
+                      title={
+                        isLive
+                          ? 'Stop logging: close this entry at the current time (text stays editable)'
+                          : undefined
+                      }
+                      sx={isLive ? { cursor: 'pointer' } : undefined}
                     />
                     {syncChip && <Chip size="small" color={syncChip.color} variant="outlined" label={syncChip.label} />}
                   </Stack>
@@ -1301,7 +1312,9 @@ export function App() {
       if (activeIndex === -1) return
 
       const nextBlocks = currentDay.blocks.map((block, index) =>
-        index === activeIndex ? { ...block, closed: true, endMinute: Math.max(block.startMinute ?? nowMinute, nowMinute) } : block,
+        index === activeIndex
+          ? { ...block, closed: true, endMinute: Math.max(block.startMinute ?? nowMinute, nowMinute), manualEnd: false }
+          : block,
       )
       const normalized = normalizeNotebookDay({ date: currentDay.date, blocks: nextBlocks })
       setDay(normalized)
@@ -1382,11 +1395,16 @@ export function App() {
       })()
       const activeIndex = blocks.findIndex((candidate) => candidate.startMinute !== null && !candidate.closed)
 
-      if (reopenableId === id) {
+      // Auto-closed entries (idle timeout) reopen when the user keeps typing —
+      // that is the "continue this note" affordance. Manually closed entries
+      // (end time / duration / Stop pill) must never lose their end time, so
+      // they fall through to a plain text edit.
+      if (reopenableId === id && block.manualEnd !== true) {
         blocks[index] = patchBlock(block, {
           text: value,
           closed: false,
           endMinute: null,
+          manualEnd: false,
           summaryOverride: block.summaryOverride,
         })
         return { date: currentDay.date, blocks }
@@ -1397,6 +1415,7 @@ export function App() {
           blocks[activeIndex] = patchBlock(blocks[activeIndex], {
             closed: true,
             endMinute: Math.max(blocks[activeIndex].startMinute ?? nowMinute, nowMinute),
+            manualEnd: false,
           })
         }
         blocks[index] = patchBlock(block, {
@@ -1432,20 +1451,20 @@ export function App() {
   const handleTimeChange = useCallback((id: string, edge: 'start' | 'end', value: string) => {
     const minutes = value.trim() === '' ? null : parseTime(value)
     if (value.trim() !== '' && minutes === null) return
-    commitDay((currentDay) => ({
-      date: currentDay.date,
-      blocks: currentDay.blocks.map((block) => {
-        if (block.id !== id) return block
-        if (edge === 'start') {
+      commitDay((currentDay) => ({
+        date: currentDay.date,
+        blocks: currentDay.blocks.map((block) => {
+          if (block.id !== id) return block
+          if (edge === 'start') {
+            return minutes === null
+              ? patchBlock(block, { startMinute: null, endMinute: null, closed: false, manualEnd: false })
+              : patchBlock(block, { startMinute: minutes })
+          }
           return minutes === null
-            ? patchBlock(block, { startMinute: null, endMinute: null, closed: false })
-            : patchBlock(block, { startMinute: minutes })
-        }
-        return minutes === null
-          ? patchBlock(block, { endMinute: null, closed: false })
-          : patchBlock(block, { endMinute: minutes, closed: true })
-      }),
-    }))
+            ? patchBlock(block, { endMinute: null, closed: false, manualEnd: false })
+            : patchBlock(block, { endMinute: minutes, closed: true, manualEnd: true })
+        }),
+      }))
   }, [commitDay, patchBlock])
 
   const handleDurationChange = useCallback((id: string, value: string) => {
@@ -1456,10 +1475,10 @@ export function App() {
         if (block.id !== id) return block
         if (block.startMinute === null) return block
         if (durationMinutes === null || durationMinutes <= 0) {
-          return patchBlock(block, { endMinute: null, closed: false })
+          return patchBlock(block, { endMinute: null, closed: false, manualEnd: false })
         }
         const endMinute = Math.min(block.startMinute + durationMinutes, 1439)
-        return patchBlock(block, { endMinute, closed: true })
+        return patchBlock(block, { endMinute, closed: true, manualEnd: true })
       }),
     }))
   }, [commitDay, patchBlock])
@@ -1668,6 +1687,28 @@ export function App() {
       ),
     }))
   }, [commitDay, patchBlock])
+
+  // One-click close of a live entry ("logging now" pill): stamps the end at
+  // the current minute and freezes the block. The text stays fully editable —
+  // only timing is locked. End is clamped to at least start + one minute so an
+  // instant close can't create an invalid zero-duration range.
+  const handleCloseLiveBlock = useCallback((id: string) => {
+    commitDay((currentDay) => {
+      const nowMinute = getCurrentMinute(currentDay.date)
+      return {
+        date: currentDay.date,
+        blocks: currentDay.blocks.map((block) =>
+          block.id === id && !block.closed && block.startMinute !== null
+            ? patchBlock(block, {
+                closed: true,
+                endMinute: Math.max(nowMinute, block.startMinute + MIN_BLOCK_DURATION_MINUTES),
+                manualEnd: true,
+              })
+            : block,
+        ),
+      }
+    })
+  }, [commitDay, getCurrentMinute, patchBlock])
 
   const handleSuggest = useCallback(async (id: string) => {
     const currentDay = dayRef.current
@@ -2115,6 +2156,7 @@ export function App() {
                     onDurationChange={handleDurationChange}
                     onSummaryChange={handleSummaryChange}
                     onSuggest={handleSuggest}
+                    onCloseLiveBlock={handleCloseLiveBlock}
                     suggestingId={suggestingId}
                     onDeleteBlock={handleDeleteBlock}
                     activeReopenableId={activeReopenableId}
