@@ -6,6 +6,7 @@ import {
   notebookBlockSummary,
   notebookBlockToWorklogInput,
   isPersistedNotebookBlock,
+  truncatedAutoSummaries,
 } from './notebook'
 
 function block(overrides: Partial<NotebookBlock> = {}): NotebookBlock {
@@ -73,5 +74,30 @@ describe('notebook helpers', () => {
   it('applies the configured summary limit to the generated description', () => {
     const longText = 'x'.repeat(600)
     expect(notebookBlockToWorklogInput(block({ text: longText }), 111, 'acc-1', 100).description.length).toBe(100)
+  })
+
+  it('flags unsynced closed blocks whose auto summary would be truncated', () => {
+    const longText = 'y'.repeat(600)
+    const entries = truncatedAutoSummaries(
+      [
+        block({ id: 'truncated', text: longText }),
+        block({ id: 'override', text: longText, summaryOverride: 'Mine' }),
+        block({ id: 'synced', text: longText, tempoWorklogId: 42 }),
+        block({ id: 'short', text: 'short note' }),
+        block({ id: 'open', text: longText, closed: false, endMinute: null }),
+      ],
+      100,
+    )
+    expect(entries.map((entry) => entry.blockId)).toEqual(['truncated'])
+    expect(entries[0]).toMatchObject({
+      ticketId: 'PEA-1',
+      startMinute: 9 * 60,
+      original: longText,
+      truncated: autoSummary(longText, 100),
+    })
+  })
+
+  it('returns no truncation entries when everything fits', () => {
+    expect(truncatedAutoSummaries([block()], 500)).toEqual([])
   })
 })

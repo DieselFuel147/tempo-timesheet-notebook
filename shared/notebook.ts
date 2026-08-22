@@ -50,3 +50,38 @@ export function notebookBlockToWorklogInput(
     authorAccountId,
   }
 }
+
+/** An entry whose auto summary would be shortened before upload. */
+export interface TruncatedSummaryEntry {
+  blockId: string
+  ticketId: string
+  /** Minutes from midnight; formatted by the UI layer. */
+  startMinute: number
+  original: string
+  truncated: string
+}
+
+// Entries that a push would send with a truncated auto summary. Filters mirror
+// the backend's push loop: closed + timed blocks, not already synced, no
+// summary override (overrides are never truncated).
+export function truncatedAutoSummaries(
+  blocks: NotebookBlock[],
+  maxSummaryChars: number,
+): TruncatedSummaryEntry[] {
+  const entries: TruncatedSummaryEntry[] = []
+  for (const block of blocks) {
+    if (!block.closed || block.startMinute === null || block.endMinute === null) continue
+    if (block.tempoWorklogId != null) continue // synced — a push skips it
+    if (block.summaryOverride?.trim()) continue
+    const original = block.text.trim()
+    if (original.length <= maxSummaryChars) continue
+    entries.push({
+      blockId: block.id,
+      ticketId: block.ticketId.trim(),
+      startMinute: block.startMinute,
+      original,
+      truncated: autoSummary(original, maxSummaryChars),
+    })
+  }
+  return entries
+}

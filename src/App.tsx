@@ -16,11 +16,12 @@ import CalendarMonthIcon from '@mui/icons-material/CalendarMonth'
 import FilterAltIcon from '@mui/icons-material/FilterAlt'
 import type { DryRunSummary, JiraProfile, NotebookBlock, NotebookDay, PushSummary, TempoWorklog } from '../shared/types'
 import { defaultSettings, type Settings as AppSettings } from '../shared/settings'
-import { autoSummary, isPersistedNotebookBlock, notebookBlockSummary } from '../shared/notebook'
+import { autoSummary, isPersistedNotebookBlock, notebookBlockSummary, truncatedAutoSummaries, type TruncatedSummaryEntry } from '../shared/notebook'
 import { parseTime, validateNotebookDay, type ValidationIssue } from '../shared/validation'
 import { api } from './api'
 import { addDays, formatHours, minutesToHHmm, parseDuration, prettyDate, todayISO } from './dateutil'
 import { Settings } from './Settings'
+import { SummaryTruncationDialog } from './SummaryTruncationDialog'
 import { readAppearance, writeAppearance, type Appearance } from './appearance'
 import { DatePicker } from '@mui/x-date-pickers/DatePicker'
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider'
@@ -64,6 +65,11 @@ const RULER_GUTTER = 44
 const MIN_BLOCK_DURATION_MINUTES = 1
 const DEBUG_TIME_SCALE = Number(import.meta.env.VITE_NOTEBOOK_TIME_SCALE ?? '1')
 const DAY_MINUTES = 24 * 60
+
+// Stable identities for the closed truncation gate so the dialog's props
+// don't churn (and its draft-reset effect doesn't refire) on every render.
+const NO_ENTRIES: TruncatedSummaryEntry[] = []
+const NO_IDS: ReadonlySet<string> = new Set()
 
 // Draggable notebook/timeline split (desktop row layout only). Bounds keep both
 // panels usable regardless of how far the handle is dragged.
@@ -1038,6 +1044,13 @@ export function App() {
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [timelineTick, setTimelineTick] = useState(0)
   const [pushState, setPushState] = useState<PushState>({ mode: 'idle' })
+  // Blocks the push until every auto-truncated summary is confirmed in the
+  // modal. Null = gate closed. Recomputed fresh on every Push click (no
+  // persistence — each attempt re-warns).
+  const [summaryGate, setSummaryGate] = useState<{
+    entries: TruncatedSummaryEntry[]
+    confirmedIds: Set<string>
+  } | null>(null)
   const [syncOpen, setSyncOpen] = useState(false)
   const [suggestingId, setSuggestingId] = useState<string | null>(null)
   const [aiRunning, setAiRunning] = useState(false)
@@ -1570,6 +1583,41 @@ export function App() {
     }
   }, [date, loadTempoWorklogs])
 
+  // Push entry point: intercepts the push when any unsynced entry would
+  // upload an auto-truncated summary, and only proceeds once every one has
+  // been confirmed (as-is or replaced with an override) in the modal.
+  const handlePushClick = useCallback(() => {
+    const entries = truncatedAutoSummaries(
+      dayRef.current?.blocks ?? [],
+      settings.validation.maxSummaryChars,
+    )
+    if (entries.length === 0) {
+      void runPushAction('push')
+      return
+    }
+    setSummaryGate({ entries, confirmedIds: new Set() })
+  }, [runPushAction, settings.validation.maxSummaryChars])
+
+  const handleGateConfirm = useCallback((blockId: string) => {
+    setSummaryGate((gate) =>
+      gate ? { ...gate, confirmedIds: new Set([...gate.confirmedIds, blockId]) } : gate,
+    )
+  }, [])
+
+  const handleGateEditOverride = useCallback(
+    (blockId: string, value: string) => {
+      handleSummaryChange(blockId, value)
+    },
+    [handleSummaryChange],
+  )
+
+  const handleGateCancel = useCallback(() => setSummaryGate(null), [])
+
+  const handleGatePush = useCallback(() => {
+    setSummaryGate(null)
+    void runPushAction('push')
+  }, [runPushAction])
+
   const handleSplitPointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault()
     const startX = event.clientX
@@ -1792,7 +1840,7 @@ export function App() {
                   variant="contained"
                   size="small"
                   startIcon={pushRunning ? <SyncIcon /> : <UploadIcon />}
-                  onClick={() => void runPushAction('push')}
+                  onClick={handlePushClick}
                   disabled={pushState.mode === 'running' || pushBlocked}
                 >
                   {pushRunning ? 'Pushing…' : 'Push'}
@@ -2092,6 +2140,17 @@ export function App() {
               </Typography>
             </Stack>
           </Box>
+
+          <SummaryTruncationDialog
+            open={summaryGate !== null}
+            entries={summaryGate?.entries ?? NO_ENTRIES}
+            confirmedIds={summaryGate?.confirmedIds ?? NO_IDS}
+            pushing={pushRunning}
+            onConfirm={handleGateConfirm}
+            onEditOverride={handleGateEditOverride}
+            onCancel={handleGateCancel}
+            onPush={handleGatePush}
+          />
         </Box>
       </LocalizationProvider>
     </ThemeProvider>
