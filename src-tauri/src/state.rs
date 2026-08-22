@@ -88,6 +88,7 @@ pub struct ThresholdSettings {
     pub max_entry_hours: f64,
     pub min_day_hours: f64,
     pub max_day_hours: f64,
+    pub max_summary_chars: i32,
 }
 
 impl Default for ThresholdSettings {
@@ -100,6 +101,7 @@ impl Default for ThresholdSettings {
             max_entry_hours: 4.0,
             min_day_hours: 4.0,
             max_day_hours: 12.0,
+            max_summary_chars: 500,
         }
     }
 }

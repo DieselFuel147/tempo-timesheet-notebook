@@ -18,6 +18,7 @@ describe('defaultSettings', () => {
       maxEntryHours: defaultConfig.maxEntryHours,
       minDayHours: defaultConfig.minDayHours,
       maxDayHours: defaultConfig.maxDayHours,
+      maxSummaryChars: defaultConfig.maxSummaryChars,
     })
   })
 
@@ -157,5 +158,11 @@ describe('thresholdSchema', () => {
   it('rejects out-of-range minutes', () => {
     expect(() => thresholdSchema.parse({ ...valid, workdayStartMin: -1 })).toThrow()
     expect(() => thresholdSchema.parse({ ...valid, workdayEndMin: 2000 })).toThrow()
+  })
+
+  it('rejects an out-of-range summary length', () => {
+    expect(() => thresholdSchema.parse({ ...valid, maxSummaryChars: 10 })).toThrow()
+    expect(() => thresholdSchema.parse({ ...valid, maxSummaryChars: 10001 })).toThrow()
+    expect(() => thresholdSchema.parse({ ...valid, maxSummaryChars: 250.5 })).toThrow()
   })
 })

@@ -44,13 +44,15 @@ where
     T: TempoPushClient + Sync,
 {
     let day = repo.get_day(date).await?;
+    let settings = repo.get_settings().await?;
+    let max_summary_chars = settings.validation.max_summary_chars.max(0) as usize;
     let pushable = day
         .blocks
         .iter()
-        .filter(|block| pushable_block(block))
+        .filter(|block| pushable_block(block, max_summary_chars))
         .cloned()
         .collect::<Vec<_>>();
-    let blocked = validation_blockers(&pushable, &repo.get_settings().await?);
+    let blocked = validation_blockers(&pushable, &settings);
     if !blocked.is_empty() {
         return Ok(PushSummary {
             results: Vec::new(),
@@ -83,7 +85,7 @@ where
 
     for block in unsynced {
         match resolve_issue_id(&block.ticket_id, jira, repo).await {
-            Ok(issue_id) => match notebook_block_to_worklog_input(&block, issue_id, &me.account_id) {
+            Ok(issue_id) => match notebook_block_to_worklog_input(&block, issue_id, &me.account_id, max_summary_chars) {
                 Ok(input) => match tempo.create_worklog(&input).await {
                     Ok(tempo_worklog_id) => {
                         repo.mark_synced(&block.id, tempo_worklog_id).await?;
@@ -130,13 +132,15 @@ where
     T: TempoPushClient + Sync,
 {
     let day = repo.get_day(date).await?;
+    let settings = repo.get_settings().await?;
+    let max_summary_chars = settings.validation.max_summary_chars.max(0) as usize;
     let pushable = day
         .blocks
         .iter()
-        .filter(|block| pushable_block(block))
+        .filter(|block| pushable_block(block, max_summary_chars))
         .cloned()
         .collect::<Vec<_>>();
-    let blocked = validation_blockers(&pushable, &repo.get_settings().await?);
+    let blocked = validation_blockers(&pushable, &settings);
     if !blocked.is_empty() {
         return Ok(DryRunSummary {
             dry_run: true,
@@ -157,7 +161,7 @@ where
 
     for block in unsynced {
         let issue_id = resolve_issue_id(&block.ticket_id, jira, repo).await?;
-        let input = notebook_block_to_worklog_input(&block, issue_id, &me.account_id)
+        let input = notebook_block_to_worklog_input(&block, issue_id, &me.account_id, max_summary_chars)
             .map_err(|message| AppError::internal(message))?;
         let mut request = tempo.preview_create_worklog(&input).await?;
         request.headers = redact_auth(request.headers);
@@ -185,8 +189,11 @@ fn validation_blockers(blocks: &[NotebookBlock], settings: &Settings) -> Vec<Str
         .collect()
 }
 
-fn pushable_block(block: &NotebookBlock) -> bool {
-    block.closed && block.start_minute.is_some() && block.end_minute.is_some() && !notebook_block_summary(block).trim().is_empty()
+fn pushable_block(block: &NotebookBlock, max_summary_chars: usize) -> bool {
+    block.closed
+        && block.start_minute.is_some()
+        && block.end_minute.is_some()
+        && !notebook_block_summary(block, max_summary_chars).trim().is_empty()
 }
 
 async fn resolve_issue_id<R, J>(key: &str, jira: &J, repo: &R) -> Result<i64, AppError>

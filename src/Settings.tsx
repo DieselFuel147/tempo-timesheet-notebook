@@ -396,6 +396,15 @@ export function Settings({ settings, onSaved, onClose, appearance, onAppearanceC
               fullWidth
             />
           </Stack>
+
+          <TextField
+            label="Max summary length (characters)"
+            type="number"
+            slotProps={{ htmlInput: { min: 20, max: 10000 } }}
+            value={draft.validation.maxSummaryChars}
+            onChange={num('maxSummaryChars')}
+            helperText="Auto-generated summaries are cut to this many characters (ellipsis included) before upload. Entries with an explicit Time Entry Summary are not truncated."
+          />
         </Stack>
       </Paper>
 

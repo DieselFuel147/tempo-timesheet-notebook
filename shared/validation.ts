@@ -34,6 +34,8 @@ export interface ValidationConfig {
   /** Per-day total guards. */
   minDayHours: number
   maxDayHours: number
+  /** Auto-generated summaries are cut to this many characters (ellipsis included). */
+  maxSummaryChars: number
 }
 
 export const defaultConfig: ValidationConfig = {
@@ -45,6 +47,7 @@ export const defaultConfig: ValidationConfig = {
   maxEntryHours: 4,
   minDayHours: 4,
   maxDayHours: 12,
+  maxSummaryChars: 500,
 }
 
 const TIME_RE = /^([01]?\d|2[0-3]):([0-5]\d)$/

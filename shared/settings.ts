@@ -205,6 +205,7 @@ export const thresholdSchema = z
     maxEntryHours: z.number().positive().max(24),
     minDayHours: z.number().min(0).max(24),
     maxDayHours: z.number().positive().max(24),
+    maxSummaryChars: z.number().int().min(20).max(10000),
   })
   .refine((s) => s.workdayEndMin > s.workdayStartMin, {
     message: 'End of the working day must be after the start.',

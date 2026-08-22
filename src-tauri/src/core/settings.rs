@@ -99,6 +99,9 @@ pub fn validate_settings(settings: &Settings) -> Result<(), String> {
     if validation.max_day_hours < validation.min_day_hours {
         return Err("Max day hours must be at least the min day hours.".into());
     }
+    if !(20..=10000).contains(&validation.max_summary_chars) {
+        return Err("Max summary length must be between 20 and 10000 characters.".into());
+    }
     if !settings.connections.jira.base_url.is_empty() && !is_valid_url(&settings.connections.jira.base_url) {
         return Err("Jira base URL must be a valid absolute URL.".into());
     }
@@ -135,6 +138,9 @@ fn merge_validation(validation: &serde_json::Map<String, Value>, defaults: &Thre
     }
     if let Some(value) = validation.get("maxDayHours").and_then(Value::as_f64) {
         merged.max_day_hours = value;
+    }
+    if let Some(value) = validation.get("maxSummaryChars").and_then(Value::as_i64) {
+        merged.max_summary_chars = value as i32;
     }
 
     merged

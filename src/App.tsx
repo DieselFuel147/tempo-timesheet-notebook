@@ -392,6 +392,7 @@ interface NotebookEditorPanelProps {
   blocks: NotebookBlock[]
   adminTicket: string
   issuesByBlock: Map<string, ValidationIssue[]>
+  maxSummaryChars: number
   onTextChange: (id: string, value: string, eventTarget?: HTMLTextAreaElement | null) => void
   onTicketChange: (id: string, ticketId: string) => void
   onTimeChange: (id: string, edge: 'start' | 'end', value: string) => void
@@ -408,6 +409,7 @@ const NotebookEditorPanel = memo(function NotebookEditorPanel({
   blocks,
   adminTicket,
   issuesByBlock,
+  maxSummaryChars,
   onTextChange,
   onTicketChange,
   onTimeChange,
@@ -537,7 +539,7 @@ const NotebookEditorPanel = memo(function NotebookEditorPanel({
                     </Typography>
                     <InputBase
                       value={block.summaryOverride ?? ''}
-                      placeholder={autoSummary(block.text)}
+                      placeholder={autoSummary(block.text, maxSummaryChars)}
                       onChange={(event) => onSummaryChange(block.id, event.target.value)}
                       fullWidth
                       sx={{
@@ -1936,6 +1938,7 @@ export function App() {
                     blocks={day.blocks}
                     adminTicket={settings.validation.adminTicket}
                     issuesByBlock={issuesByBlock}
+                    maxSummaryChars={settings.validation.maxSummaryChars}
                     onTextChange={handleTextChange}
                     onTicketChange={handleTicketChange}
                     onTimeChange={handleTimeChange}

@@ -24,7 +24,20 @@ function block(overrides: Partial<NotebookBlock> = {}): NotebookBlock {
 
 describe('notebook helpers', () => {
   it('auto-generates a short summary from text', () => {
-    expect(autoSummary('one two three four five six seven eight')).toBe('one two three four five six seven…')
+    expect(autoSummary('one two three four five six seven eight')).toBe('one two three four five six seven eight')
+  })
+
+  it('truncates long text to the configured character limit, ellipsis included', () => {
+    const text = 'a'.repeat(600)
+    const result = autoSummary(text, 500)
+    expect(result.length).toBe(500)
+    expect(result.endsWith('…')).toBe(true)
+    expect(autoSummary(text, 10)).toBe('aaaaaaaaa…')
+    expect(autoSummary('exactly50'.padEnd(50, 'x'), 50)).not.toContain('…')
+  })
+
+  it('falls back to a placeholder for blank notes', () => {
+    expect(autoSummary('   ')).toBe('Untitled entry')
   })
 
   it('prefers manual summary override when present', () => {
@@ -55,5 +68,10 @@ describe('notebook helpers', () => {
     expect(notebookBlockToWorklogInput(block({ summaryOverride: 'Manual tempo summary' }), 111, 'acc-1').description).toBe(
       'Manual tempo summary',
     )
+  })
+
+  it('applies the configured summary limit to the generated description', () => {
+    const longText = 'x'.repeat(600)
+    expect(notebookBlockToWorklogInput(block({ text: longText }), 111, 'acc-1', 100).description.length).toBe(100)
   })
 })

@@ -1,17 +1,20 @@
 import type { NotebookBlock, WorklogInput } from './types'
 
-export const MAX_SUMMARY_LENGTH = 200
+export const MAX_SUMMARY_LENGTH = 500
 
-export function autoSummary(text: string, maxChars = MAX_SUMMARY_LENGTH): string {
+// Must stay textually aligned with `auto_summary` in the Rust core/notebook
+// module: trim, then cut to `maxChars` characters with a single '…' counted
+// inside the limit.
+export function autoSummary(text: string, maxChars: number = MAX_SUMMARY_LENGTH): string {
   const trimmed = text.trim()
   if (!trimmed.length) return 'Untitled entry'
-  const short = trimmed.slice(0, maxChars)
-  return short + (trimmed.length > maxChars ? '…' : '')
+  if (trimmed.length <= maxChars) return trimmed
+  return trimmed.slice(0, Math.max(0, maxChars - 1)) + '…'
 }
 
-export function notebookBlockSummary(block: NotebookBlock): string {
+export function notebookBlockSummary(block: NotebookBlock, maxSummaryChars: number = MAX_SUMMARY_LENGTH): string {
   const override = block.summaryOverride?.trim()
-  return override ? override : autoSummary(block.text)
+  return override ? override : autoSummary(block.text, maxSummaryChars)
 }
 
 export function notebookBlockDurationMinutes(block: NotebookBlock): number | null {
@@ -27,6 +30,7 @@ export function notebookBlockToWorklogInput(
   block: NotebookBlock,
   issueId: number,
   authorAccountId: string,
+  maxSummaryChars: number = MAX_SUMMARY_LENGTH,
 ): WorklogInput {
   const minutes = notebookBlockDurationMinutes(block)
   if (minutes === null || minutes <= 0 || block.startMinute === null) {
@@ -42,7 +46,7 @@ export function notebookBlockToWorklogInput(
     timeSpentSeconds: minutes * 60,
     startDate: block.date,
     startTime,
-    description: notebookBlockSummary(block).trim(),
+    description: notebookBlockSummary(block, maxSummaryChars).trim(),
     authorAccountId,
   }
 }
