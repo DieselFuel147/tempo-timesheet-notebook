@@ -626,6 +626,14 @@ interface TimelinePanelProps {
 // already confirmed in Tempo, kept clear of the editable notebook blocks.
 const TEMPO_LANE_WIDTH = 20
 
+// Timeline blocks are sized purely by their start/end times, so their summary
+// text must fit whatever room is left instead of stretching the block. These
+// approximate the chrome around the summary (paper padding 2x8, the time/chip
+// row, and the stack gap) to derive a safe line count; any rounding residue is
+// absorbed by overflow clipping rather than growing the block.
+const SUMMARY_LINE_HEIGHT_PX = 20
+const TIMELINE_BLOCK_CHROME_PX = 42
+
 function TimelinePanel({
   blocks,
   nowMinute,
@@ -792,6 +800,8 @@ function TimelinePanel({
         const ticketCount = ticketId ? ticketCounts.get(ticketId) ?? 0 : 0
         const summary = notebookBlockSummary(block)
         const expanded = expandedId === block.id
+        // How many body2 lines fit under the time row without growing the block.
+        const maxSummaryLines = Math.max(0, Math.floor((height - TIMELINE_BLOCK_CHROME_PX) / SUMMARY_LINE_HEIGHT_PX))
         const previous = timedBlocks[index - 1]
         const next = timedBlocks[index + 1]
         const gapAbove = previous ? Math.max(0, startMinute - previous.endMinute) : 0
@@ -826,8 +836,10 @@ function TimelinePanel({
               }}
               sx={{
                 position: 'relative',
-                minHeight: height,
+                height,
                 p: 1,
+                display: 'flex',
+                flexDirection: 'column',
                 bgcolor: color,
                 color: '#F4F5EF',
                 borderRadius: 1.5,
@@ -960,7 +972,7 @@ function TimelinePanel({
                 </IconButton>
               )}
 
-              <Stack spacing={0.75}>
+              <Stack spacing={0.75} sx={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
                 <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
                   <Typography variant="caption" sx={{ fontFamily: MONO_FONT, fontSize: 10, fontVariantNumeric: 'tabular-nums', color: 'rgba(255,255,255,0.9)' }}>
                     {`${String(Math.floor(startMinute / 60)).padStart(2, '0')}:${String(startMinute % 60).padStart(2, '0')} - ${
@@ -978,9 +990,23 @@ function TimelinePanel({
                   )}
                 </Stack>
 
-                <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                  {summary}
-                </Typography>
+                {maxSummaryLines > 0 && (
+                  <Typography
+                    variant="body2"
+                    title={summary}
+                    sx={{
+                      fontWeight: 600,
+                      flex: 1,
+                      minHeight: 0,
+                      overflow: 'hidden',
+                      display: '-webkit-box',
+                      WebkitBoxOrient: 'vertical',
+                      WebkitLineClamp: maxSummaryLines,
+                    }}
+                  >
+                    {summary}
+                  </Typography>
+                )}
               </Stack>
             </Paper>
           </Box>
