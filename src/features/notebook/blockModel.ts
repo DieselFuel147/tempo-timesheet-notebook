@@ -75,9 +75,19 @@ export function blockHasPushRelevantChanges(previous: NotebookBlock, next: Noteb
   )
 }
 
+const isClosedTimedBlock = (block: NotebookBlock): boolean => block.closed && block.startMinute !== null
+
 export function normalizeNotebookDay(day: NotebookDay): NotebookDay {
   const clonedBlocks = day.blocks.map(cloneBlock)
-  const blocks = clonedBlocks.length > 0 ? clonedBlocks : [createBlankBlock(day.date)]
+  let blocks = clonedBlocks.length > 0 ? clonedBlocks : [createBlankBlock(day.date)]
+
+  blocks = [
+    ...blocks
+      .filter(isClosedTimedBlock)
+      .sort((left, right) => (left.startMinute ?? 0) - (right.startMinute ?? 0)),
+    ...blocks.filter((block) => !isClosedTimedBlock(block)),
+  ]
+
   const last = blocks[blocks.length - 1]
   const needsTrailingBlank =
     last.startMinute !== null || last.text.trim().length > 0 || last.ticketId.trim().length > 0

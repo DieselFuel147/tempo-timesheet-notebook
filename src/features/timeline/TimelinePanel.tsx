@@ -1,4 +1,4 @@
-import { useMemo, type PointerEvent as ReactPointerEvent } from 'react'
+import { useMemo, useRef, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import ExpandIcon from '@mui/icons-material/Expand'
 import LinkIcon from '@mui/icons-material/Link'
 import { Box, Chip, IconButton, Paper, Stack, Tooltip, Typography, useTheme } from '@mui/material'
@@ -8,6 +8,7 @@ import { formatHours } from '@app/dateutil'
 import { DAY_MINUTES, getTimedBlocks } from '@app/features/notebook/blockModel'
 import { toTempoWorklogViews } from '@app/features/sync/tempoViews'
 import { MIN_BLOCK_PIXEL_FLOOR, PX_PER_MINUTE, RULER_GUTTER } from './constants'
+import type { BlockDragPreview } from './useBlockDrag'
 import { MONO_FONT } from '@app/theme'
 
 export interface TimelinePanelProps {
@@ -16,6 +17,10 @@ export interface TimelinePanelProps {
   expandedId: string | null
   tempoWorklogs: TempoWorklog[]
   localWorklogIds: Set<number>
+  /** Mid-drag visual offset of a block body; overlaps are preview-only. */
+  blockDragPreview: BlockDragPreview | null
+  /** Double-click on a blank ruler spot; payload is the clicked minute. */
+  onCreateEntryAt: (minute: number) => void
   onToggleExpand: (id: string) => void
   onAbsorbGap: (id: string, direction: 'up' | 'down') => void
   onMerge: (id: string, direction: 'prev' | 'next') => void
@@ -43,6 +48,8 @@ export function TimelinePanel({
   expandedId,
   tempoWorklogs,
   localWorklogIds,
+  blockDragPreview,
+  onCreateEntryAt,
   onToggleExpand,
   onAbsorbGap,
   onMerge,
@@ -52,6 +59,8 @@ export function TimelinePanel({
 }: TimelinePanelProps) {
   const theme = useTheme()
   const palette = theme.blockColors
+  // Positioning context for blocks/ticks; also the hit area for gap creation.
+  const rulerBodyRef = useRef<HTMLDivElement | null>(null)
   const ticketCounts = useMemo(() => {
     const counts = new Map<string, number>()
     for (const block of blocks) {
@@ -142,11 +151,26 @@ export function TimelinePanel({
     return marks
   }, [maxMinute, minVisibleMinute])
 
+  // Double-click on blank ruler space creates an entry there. Attached to the
+  // outer box because the inner one collapses to zero height (all of its
+  // children are absolutely positioned), so gap clicks never hit it. Blocks
+  // and the Tempo lane stop propagation, leaving genuine gaps only.
+  const handleGapDoubleClick = (event: ReactMouseEvent<HTMLDivElement>) => {
+    const node = rulerBodyRef.current
+    if (!node) return
+    const rect = node.getBoundingClientRect()
+    // Blocks are positioned at (minute - minVisible) * PX_PER_MINUTE + 16
+    // inside the ruler body; invert that mapping for the clicked pixel.
+    const minute = Math.round((event.clientY - rect.top - 16) / PX_PER_MINUTE) + minVisibleMinute
+    onCreateEntryAt(Math.min(Math.max(minute, 0), DAY_MINUTES - 1))
+  }
+
   return (
-    <Box onClick={onDeselect} sx={{ position: 'relative', minHeight: timelineHeight, pr: 1 }}>
+    <Box onClick={onDeselect} onDoubleClick={handleGapDoubleClick} sx={{ position: 'relative', minHeight: timelineHeight, pr: 1 }}>
       {/* Hour labels live in the left gutter, positioned directly against this
           outer box (no padding to fight with) so `left: 0` really means the
-          gutter's own left edge. */}
+          gutter's own left edge. Pointer events stay off so double-clicking a
+          label never creates an entry. */}
       {hourMarks.map(({ minute, top }) => (
         <Typography
           key={`label-${minute}`}
@@ -163,6 +187,7 @@ export function TimelinePanel({
             fontSize: 10,
             fontVariantNumeric: 'tabular-nums',
             whiteSpace: 'nowrap',
+            pointerEvents: 'none',
           }}
         >
           {`${String(Math.floor(minute / 60)).padStart(2, '0')}:00`}
@@ -171,7 +196,7 @@ export function TimelinePanel({
 
       {/* Everything else (ticks, connectors, blocks) sits to the right of the
           label gutter via this margin-shifted positioning context. */}
-      <Box sx={{ position: 'relative', ml: `${RULER_GUTTER}px` }}>
+      <Box ref={rulerBodyRef} onDoubleClick={handleGapDoubleClick} sx={{ position: 'relative', ml: `${RULER_GUTTER}px` }}>
         {hourMarks.map(({ minute, top }) => (
           <Box key={`tick-${minute}`} sx={{ position: 'absolute', insetInline: 0, top }}>
             <Box sx={{ borderTop: '1px solid', borderColor: 'divider' }} />
@@ -198,7 +223,13 @@ export function TimelinePanel({
         const endMinute = timedBlock.endMinute
         const duration = Math.max(1, endMinute - startMinute)
         const height = Math.max(MIN_BLOCK_PIXEL_FLOOR, duration * PX_PER_MINUTE)
-        const top = (startMinute - minVisibleMinute) * PX_PER_MINUTE + 16
+        // Mid-drag the block renders at its preview offset so it can travel
+        // over other entries; the model only updates once it drops somewhere.
+        const isDragging = blockDragPreview?.id === block.id
+        const dragDelta = isDragging ? blockDragPreview.deltaMinutes : 0
+        const renderStart = startMinute + dragDelta
+        const renderEnd = endMinute + dragDelta
+        const top = (renderStart - minVisibleMinute) * PX_PER_MINUTE + 16
         const ticketId = block.ticketId.trim()
         const color = ticketId ? ticketColors.get(ticketId) ?? palette[index % palette.length] : palette[index % palette.length]
         const ticketCount = ticketId ? ticketCounts.get(ticketId) ?? 0 : 0
@@ -235,6 +266,7 @@ export function TimelinePanel({
             <Paper
               elevation={0}
               onPointerDown={(event) => onBlockPointerDown(block.id, event)}
+              onDoubleClick={(event) => event.stopPropagation()}
               onClick={(event) => {
                 event.stopPropagation()
                 if (block.closed) onToggleExpand(block.id)
@@ -248,11 +280,19 @@ export function TimelinePanel({
                 bgcolor: color,
                 color: '#F4F5EF',
                 borderRadius: 1.5,
-                cursor: block.closed ? 'grab' : 'default',
+                cursor: isDragging ? 'grabbing' : block.closed ? 'grab' : 'default',
                 touchAction: 'none',
                 boxShadow: expanded
                   ? `0 0 0 2px ${theme.palette.text.primary}`
                   : '0 2px 5px rgba(0,0,0,0.18)',
+                // Dragging lifts the card out of the lane (left shift +
+                // transparency) so the entries it passes over stay readable.
+                ...(isDragging && {
+                  transform: 'translateX(-18px)',
+                  opacity: 0.65,
+                  zIndex: 3,
+                  boxShadow: '0 10px 24px rgba(0,0,0,0.35)',
+                }),
               }}
             >
               {expanded && block.closed && (
@@ -392,11 +432,11 @@ export function TimelinePanel({
                     variant="caption"
                     sx={{ fontFamily: MONO_FONT, fontSize: 10, fontVariantNumeric: 'tabular-nums', color: 'rgba(255,255,255,0.9)', whiteSpace: 'nowrap' }}
                   >
-                    {`${String(Math.floor(startMinute / 60)).padStart(2, '0')}:${String(startMinute % 60).padStart(2, '0')} - ${
+                    {`${String(Math.floor(renderStart / 60)).padStart(2, '0')}:${String(renderStart % 60).padStart(2, '0')} - ${
                       block.closed
-                        ? `${String(Math.floor(endMinute / 60)).padStart(2, '0')}:${String(endMinute % 60).padStart(2, '0')}`
+                        ? `${String(Math.floor(renderEnd / 60)).padStart(2, '0')}:${String(renderEnd % 60).padStart(2, '0')}`
                         : 'now'
-                    }  ·  ${formatHours(block.closed ? endMinute - startMinute : nowMinute - startMinute)}`}
+                    }  ·  ${formatHours(block.closed ? renderEnd - renderStart : nowMinute - startMinute)}`}
                   </Typography>
                   {ticketId && (
                     <Chip
@@ -446,6 +486,7 @@ export function TimelinePanel({
             <Tooltip key={`tempo-${view.tempoWorklogId}`} title={tooltip} placement="left" arrow>
               <Box
                 aria-label={tooltip}
+                onDoubleClick={(event) => event.stopPropagation()}
                 sx={{
                   position: 'absolute',
                   top,
