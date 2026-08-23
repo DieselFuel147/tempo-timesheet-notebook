@@ -13,8 +13,8 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import type { TruncatedSummaryEntry } from '../shared/notebook'
-import { minutesToHHmm } from './dateutil'
+import type { TruncatedSummaryEntry } from '@shared/notebook'
+import { minutesToHHmm } from '@app/dateutil'
 
 interface Props {
   open: boolean

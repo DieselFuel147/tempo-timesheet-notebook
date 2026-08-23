@@ -1,3 +1,4 @@
+import { fileURLToPath, URL } from 'node:url'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
@@ -9,6 +10,12 @@ const tauriHost = process.env.TAURI_DEV_HOST
 
 export default defineConfig({
   plugins: [react()],
+  resolve: {
+    alias: {
+      '@app': fileURLToPath(new URL('./src', import.meta.url)),
+      '@shared': fileURLToPath(new URL('./shared', import.meta.url)),
+    },
+  },
   server: {
     host: tauriHost || 'localhost',
     hmr: tauriHost

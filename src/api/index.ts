@@ -1,7 +1,7 @@
-import { defaultSettings, mergeSettings, type SaveSettingsInput, type Settings } from '../shared/settings'
-import { tauriCommandNames, type SaveDayInput } from '../shared/tauri-contracts'
-import type { NotebookDay, TempoWorklog } from '../shared/types'
-import { invokeCommand } from './api/desktopApi'
+import { defaultSettings, mergeSettings, type SaveSettingsInput, type Settings } from '@shared/settings'
+import { tauriCommandNames, type SaveDayInput } from '@shared/tauri-contracts'
+import type { NotebookDay, TempoWorklog } from '@shared/types'
+import { invokeCommand } from './invokeCommand'
 
 export type NotebookDaySave = SaveDayInput
 

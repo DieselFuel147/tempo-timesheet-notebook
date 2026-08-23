@@ -20,11 +20,11 @@ import type {
   SecretUpdates,
   Settings as AppSettings,
   ThresholdSettings,
-} from '../shared/settings'
-import { DEFAULT_AI_SYSTEM_PROMPT, defaultSettings } from '../shared/settings'
-import { parseTime } from '../shared/validation'
+} from '@shared/settings'
+import { DEFAULT_AI_SYSTEM_PROMPT, defaultSettings } from '@shared/settings'
+import { parseTime } from '@shared/validation'
 import { minutesToHHmm } from './dateutil'
-import { api } from './api'
+import { api } from '@app/api'
 import type { Appearance } from './appearance'
 
 interface Props {
