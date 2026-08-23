@@ -108,12 +108,13 @@ export function App() {
 
   const { timelineWidth, handleSplitPointerDown } = useTimelineSplit()
 
-  const { handlePinPointerDown, handleTimelineBlockPointerDown, handleTimelineBlockClick } = useBlockDrag({
-    dayRef,
-    commitDay,
-    getCurrentMinute,
-    setExpandedId,
-  })
+  const { handlePinPointerDown, handleTimelineBlockPointerDown, handleTimelineBlockClick, blockDragPreview } =
+    useBlockDrag({
+      dayRef,
+      commitDay,
+      getCurrentMinute,
+      setExpandedId,
+    })
 
   const {
     pushState,
@@ -404,6 +405,7 @@ export function App() {
                     expandedId={expandedId}
                     tempoWorklogs={visibleTempoWorklogs}
                     localWorklogIds={localWorklogIds}
+                    blockDragPreview={blockDragPreview}
                     onToggleExpand={handleTimelineBlockClick}
                     onAbsorbGap={handleAbsorbGap}
                     onMerge={handleMerge}

@@ -8,6 +8,7 @@ import { formatHours } from '@app/dateutil'
 import { DAY_MINUTES, getTimedBlocks } from '@app/features/notebook/blockModel'
 import { toTempoWorklogViews } from '@app/features/sync/tempoViews'
 import { MIN_BLOCK_PIXEL_FLOOR, PX_PER_MINUTE, RULER_GUTTER } from './constants'
+import type { BlockDragPreview } from './useBlockDrag'
 import { MONO_FONT } from '@app/theme'
 
 export interface TimelinePanelProps {
@@ -16,6 +17,8 @@ export interface TimelinePanelProps {
   expandedId: string | null
   tempoWorklogs: TempoWorklog[]
   localWorklogIds: Set<number>
+  /** Mid-drag visual offset of a block body; overlaps are preview-only. */
+  blockDragPreview: BlockDragPreview | null
   onToggleExpand: (id: string) => void
   onAbsorbGap: (id: string, direction: 'up' | 'down') => void
   onMerge: (id: string, direction: 'prev' | 'next') => void
@@ -43,6 +46,7 @@ export function TimelinePanel({
   expandedId,
   tempoWorklogs,
   localWorklogIds,
+  blockDragPreview,
   onToggleExpand,
   onAbsorbGap,
   onMerge,
@@ -198,7 +202,13 @@ export function TimelinePanel({
         const endMinute = timedBlock.endMinute
         const duration = Math.max(1, endMinute - startMinute)
         const height = Math.max(MIN_BLOCK_PIXEL_FLOOR, duration * PX_PER_MINUTE)
-        const top = (startMinute - minVisibleMinute) * PX_PER_MINUTE + 16
+        // Mid-drag the block renders at its preview offset so it can travel
+        // over other entries; the model only updates once it drops somewhere.
+        const isDragging = blockDragPreview?.id === block.id
+        const dragDelta = isDragging ? blockDragPreview.deltaMinutes : 0
+        const renderStart = startMinute + dragDelta
+        const renderEnd = endMinute + dragDelta
+        const top = (renderStart - minVisibleMinute) * PX_PER_MINUTE + 16
         const ticketId = block.ticketId.trim()
         const color = ticketId ? ticketColors.get(ticketId) ?? palette[index % palette.length] : palette[index % palette.length]
         const ticketCount = ticketId ? ticketCounts.get(ticketId) ?? 0 : 0
@@ -248,11 +258,19 @@ export function TimelinePanel({
                 bgcolor: color,
                 color: '#F4F5EF',
                 borderRadius: 1.5,
-                cursor: block.closed ? 'grab' : 'default',
+                cursor: isDragging ? 'grabbing' : block.closed ? 'grab' : 'default',
                 touchAction: 'none',
                 boxShadow: expanded
                   ? `0 0 0 2px ${theme.palette.text.primary}`
                   : '0 2px 5px rgba(0,0,0,0.18)',
+                // Dragging lifts the card out of the lane (left shift +
+                // transparency) so the entries it passes over stay readable.
+                ...(isDragging && {
+                  transform: 'translateX(-18px)',
+                  opacity: 0.65,
+                  zIndex: 3,
+                  boxShadow: '0 10px 24px rgba(0,0,0,0.35)',
+                }),
               }}
             >
               {expanded && block.closed && (
@@ -392,11 +410,11 @@ export function TimelinePanel({
                     variant="caption"
                     sx={{ fontFamily: MONO_FONT, fontSize: 10, fontVariantNumeric: 'tabular-nums', color: 'rgba(255,255,255,0.9)', whiteSpace: 'nowrap' }}
                   >
-                    {`${String(Math.floor(startMinute / 60)).padStart(2, '0')}:${String(startMinute % 60).padStart(2, '0')} - ${
+                    {`${String(Math.floor(renderStart / 60)).padStart(2, '0')}:${String(renderStart % 60).padStart(2, '0')} - ${
                       block.closed
-                        ? `${String(Math.floor(endMinute / 60)).padStart(2, '0')}:${String(endMinute % 60).padStart(2, '0')}`
+                        ? `${String(Math.floor(renderEnd / 60)).padStart(2, '0')}:${String(renderEnd % 60).padStart(2, '0')}`
                         : 'now'
-                    }  ·  ${formatHours(block.closed ? endMinute - startMinute : nowMinute - startMinute)}`}
+                    }  ·  ${formatHours(block.closed ? renderEnd - renderStart : nowMinute - startMinute)}`}
                   </Typography>
                   {ticketId && (
                     <Chip

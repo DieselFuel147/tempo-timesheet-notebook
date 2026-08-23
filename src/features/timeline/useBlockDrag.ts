@@ -1,4 +1,4 @@
-import { useCallback, useRef, type PointerEvent as ReactPointerEvent } from 'react'
+import { useCallback, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import type { NotebookDay } from '@shared/types'
 import {
   DAY_MINUTES,
@@ -8,10 +8,17 @@ import {
   replaceBlockById,
 } from '@app/features/notebook/blockModel'
 import { PX_PER_MINUTE } from './constants'
+import { resolveDropTarget } from './dropTarget'
 
 // Pointer travel (px) before a press on a block body counts as a drag rather
 // than a click.
 const DRAG_START_THRESHOLD_PX = 4
+
+/** Live visual offset of a block mid-drag, kept outside the day model. */
+export interface BlockDragPreview {
+  id: string
+  deltaMinutes: number
+}
 
 interface Options {
   dayRef: { current: NotebookDay | null }
@@ -27,6 +34,9 @@ export function useBlockDrag({ dayRef, commitDay, getCurrentMinute, setExpandedI
   // Set while a timeline block body drag is in flight; the click that follows
   // pointerup must not toggle that block's expansion.
   const justDraggedIdRef = useRef<string | null>(null)
+  // Visual offset while dragging. Deliberately not committed to the day model
+  // so the block can travel over other entries; overlaps never reach state.
+  const [blockDragPreview, setBlockDragPreview] = useState<BlockDragPreview | null>(null)
 
   const handlePinPointerDown = useCallback(
     (id: string, edge: 'start' | 'end', event: ReactPointerEvent<HTMLDivElement>) => {
@@ -81,8 +91,10 @@ export function useBlockDrag({ dayRef, commitDay, getCurrentMinute, setExpandedI
   )
 
   // Whole-block drag: shifts both edges by the same delta so the duration is
-  // preserved, clamped against neighbouring blocks and the day bounds. A
-  // genuine drag suppresses the click that would otherwise toggle expansion.
+  // preserved. The block travels freely over other entries while dragging
+  // (preview only); on release it snaps to the nearest gap that fits, falling
+  // back to its original spot when no gap is large enough. A genuine drag
+  // suppresses the click that would otherwise toggle expansion.
   const handleTimelineBlockPointerDown = useCallback(
     (id: string, event: ReactPointerEvent<HTMLDivElement>) => {
       if (event.button !== 0) return
@@ -100,10 +112,9 @@ export function useBlockDrag({ dayRef, commitDay, getCurrentMinute, setExpandedI
       if (!current.block.closed) return
       const startMinute = current.startMinute
       const duration = current.endMinute - current.startMinute
-      const previous = timedBlocks[timedIndex - 1]
-      const next = timedBlocks[timedIndex + 1]
-      const minDelta = (previous?.endMinute ?? 0) - startMinute
-      const maxDelta = (next?.startMinute ?? DAY_MINUTES) - current.endMinute
+      // Free vertical travel within the day bounds only — passing over other
+      // entries is allowed; landing is resolved against them on release.
+      const maxDelta = DAY_MINUTES - duration - startMinute
       const pointerStart = event.clientY
       let moved = false
       let lastApplied: number | null = null
@@ -116,20 +127,13 @@ export function useBlockDrag({ dayRef, commitDay, getCurrentMinute, setExpandedI
         moved = true
         justDraggedIdRef.current = id
 
-        const applied = Math.min(Math.max(Math.round(offsetY / PX_PER_MINUTE), minDelta), maxDelta)
+        const applied = Math.min(Math.max(Math.round(offsetY / PX_PER_MINUTE), -startMinute), maxDelta)
         if (applied === lastApplied) return
         lastApplied = applied
-        commitDay((dayState) => ({
-          date: dayState.date,
-          blocks: replaceBlockById(dayState.blocks, id, (block) =>
-            markBlockDirty({ ...block, startMinute: startMinute + applied, endMinute: startMinute + applied + duration }),
-          ),
-        }))
+        setBlockDragPreview({ id, deltaMinutes: applied })
       }
 
-      const onUp = () => {
-        window.removeEventListener('pointermove', onMove)
-        window.removeEventListener('pointerup', onUp)
+      const clearJustDragged = () => {
         // The click event (if any) fires after pointerup; clear the suppression
         // flag on a later tick so a click that never arrives can't swallow the
         // next legitimate one.
@@ -138,8 +142,37 @@ export function useBlockDrag({ dayRef, commitDay, getCurrentMinute, setExpandedI
         }, 0)
       }
 
+      const finish = () => {
+        window.removeEventListener('pointermove', onMove)
+        window.removeEventListener('pointerup', finish)
+        window.removeEventListener('pointercancel', finish)
+        setBlockDragPreview(null)
+
+        const applied = lastApplied
+        if (!moved || applied === null || applied === 0) {
+          clearJustDragged()
+          return
+        }
+
+        // Snap to the nearest collision-free gap; stay put when none fits.
+        const others = timedBlocks
+          .filter((item) => item.block.id !== id)
+          .map((item) => ({ startMinute: item.startMinute, endMinute: item.endMinute }))
+        const landed = resolveDropTarget(others, startMinute + applied, duration)
+        if (landed !== null && landed !== startMinute) {
+          commitDay((dayState) => ({
+            date: dayState.date,
+            blocks: replaceBlockById(dayState.blocks, id, (block) =>
+              markBlockDirty({ ...block, startMinute: landed, endMinute: landed + duration }),
+            ),
+          }))
+        }
+        clearJustDragged()
+      }
+
       window.addEventListener('pointermove', onMove)
-      window.addEventListener('pointerup', onUp)
+      window.addEventListener('pointerup', finish)
+      window.addEventListener('pointercancel', finish)
     },
     [commitDay, dayRef, getCurrentMinute],
   )
@@ -154,5 +187,5 @@ export function useBlockDrag({ dayRef, commitDay, getCurrentMinute, setExpandedI
     setExpandedId((current) => (current === id ? null : id))
   }, [setExpandedId])
 
-  return { handlePinPointerDown, handleTimelineBlockPointerDown, handleTimelineBlockClick }
+  return { handlePinPointerDown, handleTimelineBlockPointerDown, handleTimelineBlockClick, blockDragPreview }
 }
