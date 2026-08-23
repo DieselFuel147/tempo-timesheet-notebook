@@ -358,6 +358,27 @@ export function useNotebookDay({ date, getCurrentMinute, resetClockAnchor, setEx
     })
   }, [commitDay, getCurrentMinute])
 
+  // Creates a fully-timed entry from the trailing blank slot (double-click on
+  // a blank timeline spot) and moves cursor focus to its notes field. The
+  // entry lands closed with a manual end: the bounds are explicit, so typing
+  // the description must not reopen or retiming it like a live entry.
+  const handleCreateEntryAt = useCallback((startMinute: number, endMinute: number) => {
+    const currentDay = dayRef.current
+    if (!currentDay || currentDay.blocks.length === 0) return
+    const blank = currentDay.blocks[currentDay.blocks.length - 1]
+    if (blank.closed || blank.startMinute !== null || blank.text.trim().length > 0 || blank.ticketId.trim().length > 0) return
+
+    const id = blank.id
+    commitDay((dayState) => ({
+      date: dayState.date,
+      blocks: replaceBlockById(dayState.blocks, id, (block) =>
+        patchBlock(block, { startMinute, endMinute, closed: true, manualEnd: true }),
+      ),
+    }))
+    // Focus after the commit renders; the card keeps its id so the ref holds.
+    window.setTimeout(() => textAreaRefs.current[id]?.focus(), 0)
+  }, [commitDay, dayRef])
+
   const handleSuggest = useCallback(async (id: string) => {
     const currentDay = dayRef.current
     const block = currentDay?.blocks.find((candidate) => candidate.id === id)
@@ -394,6 +415,7 @@ export function useNotebookDay({ date, getCurrentMinute, resetClockAnchor, setEx
     handleAbsorbGap,
     handleMerge,
     handleCloseLiveBlock,
+    handleCreateEntryAt,
     handleSuggest,
   }
 }

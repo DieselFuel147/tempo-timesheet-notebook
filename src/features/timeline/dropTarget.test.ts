@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolveDropTarget } from './dropTarget'
+import { resolveClickedEntrySpan, resolveDropTarget } from './dropTarget'
 
 const span = (startMinute: number, endMinute: number) => ({ startMinute, endMinute })
 
@@ -57,5 +57,51 @@ describe('resolveDropTarget', () => {
     const landed = resolveDropTarget(others, 10 * 60 + 30, 60)
     expect(landed).not.toBeNull()
     expect(landed! + 60 <= 9 * 60 || landed! >= 12 * 60).toBe(true)
+  })
+})
+
+describe('resolveClickedEntrySpan', () => {
+  it('fills a gap bounded on both sides, starting against the previous entry', () => {
+    const others = [span(9 * 60, 10 * 60), span(13 * 60, 14 * 60)]
+    // Clicked anywhere in the 10:00–13:00 gap: start 10:00, end capped at 11:00.
+    expect(resolveClickedEntrySpan(others, 11 * 60 + 30)).toEqual({ startMinute: 10 * 60, endMinute: 11 * 60 })
+  })
+
+  it('fills a narrow bounded gap edge to edge when it is under the cap', () => {
+    const others = [span(9 * 60, 10 * 60), span(10 * 60 + 50, 12 * 60)]
+    // Gap is only 50 minutes — filled fully rather than capped.
+    expect(resolveClickedEntrySpan(others, 10 * 60 + 20)).toEqual({ startMinute: 10 * 60, endMinute: 10 * 60 + 50 })
+  })
+
+  it('anchors the start after the previous entry when only bounded above', () => {
+    const others = [span(9 * 60, 10 * 60)]
+    // Clicked below the only entry: 10:00–10:30.
+    expect(resolveClickedEntrySpan(others, 15 * 60)).toEqual({ startMinute: 10 * 60, endMinute: 10 * 60 + 30 })
+  })
+
+  it('anchors the end before the next entry when only bounded below', () => {
+    const others = [span(12 * 60, 13 * 60)]
+    // Clicked above the only entry: 11:30–12:00.
+    expect(resolveClickedEntrySpan(others, 9 * 60)).toEqual({ startMinute: 11 * 60 + 30, endMinute: 12 * 60 })
+  })
+
+  it('starts at the clicked minute with a default duration when unbounded', () => {
+    expect(resolveClickedEntrySpan([], 14 * 60 + 10)).toEqual({ startMinute: 14 * 60 + 10, endMinute: 14 * 60 + 40 })
+  })
+
+  it('clamps unbounded clicks against the day edges', () => {
+    // Near midnight the 30-minute default cannot run past 24:00, so the start
+    // pulls back to 23:30…
+    expect(resolveClickedEntrySpan([], 23 * 60 + 50)).toEqual({ startMinute: 23 * 60 + 30, endMinute: 24 * 60 })
+    // …and negative clicks pin to midnight.
+    expect(resolveClickedEntrySpan([], -5)).toEqual({ startMinute: 0, endMinute: 30 })
+  })
+
+  it('treats clicks exactly on an entry boundary as the adjacent gap', () => {
+    const others = [span(9 * 60, 10 * 60), span(12 * 60, 13 * 60)]
+    // Clicked exactly at the entry's end: bounded on both sides below.
+    expect(resolveClickedEntrySpan(others, 10 * 60)).toEqual({ startMinute: 10 * 60, endMinute: 11 * 60 })
+    // Clicked exactly at the next entry's start: same gap, same result.
+    expect(resolveClickedEntrySpan(others, 12 * 60)).toEqual({ startMinute: 10 * 60, endMinute: 11 * 60 })
   })
 })

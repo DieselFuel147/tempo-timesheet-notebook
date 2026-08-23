@@ -6,7 +6,7 @@ import { isPersistedNotebookBlock, type TruncatedSummaryEntry } from '@shared/no
 import { validateNotebookDay, type ValidationIssue } from '@shared/validation'
 import { api } from '@app/api'
 import { isPushableBlock } from '@app/features/sync/syncStatus'
-import { blockDuration, persistedNotebookDay } from '@app/features/notebook/blockModel'
+import { blockDuration, getTimedBlocks, persistedNotebookDay } from '@app/features/notebook/blockModel'
 import { NotebookEditorPanel } from '@app/features/notebook/NotebookEditorPanel'
 import { TimelinePanel } from '@app/features/timeline/TimelinePanel'
 import { SummaryTruncationDialog } from '@app/features/sync/SummaryTruncationDialog'
@@ -21,6 +21,7 @@ import { useAiStatus } from '@app/features/shell/useAiStatus'
 import { useNotebookDay } from '@app/features/notebook/useNotebookDay'
 import { useBlockDrag } from '@app/features/timeline/useBlockDrag'
 import { useTimelineSplit } from '@app/features/timeline/useTimelineSplit'
+import { resolveClickedEntrySpan } from '@app/features/timeline/dropTarget'
 import { todayISO } from './dateutil'
 import { SettingsPage } from '@app/features/settings/SettingsPage'
 import { readAppearance, writeAppearance, type Appearance } from './appearance'
@@ -89,6 +90,7 @@ export function App() {
     handleAbsorbGap,
     handleMerge,
     handleCloseLiveBlock,
+    handleCreateEntryAt,
     handleSuggest,
   } = useNotebookDay({
     date,
@@ -115,6 +117,23 @@ export function App() {
       getCurrentMinute,
       setExpandedId,
     })
+
+  // Double-click on a blank timeline spot: size the new entry to the clicked
+  // gap (capped fills, anchored edges) and create it from the trailing blank
+  // notebook slot.
+  const handleCreateEntryAtMinute = useCallback(
+    (minute: number) => {
+      const currentDay = dayRef.current
+      if (!currentDay) return
+      const others = getTimedBlocks(currentDay.blocks, getCurrentMinute(currentDay.date)).map((item) => ({
+        startMinute: item.startMinute,
+        endMinute: item.endMinute,
+      }))
+      const span = resolveClickedEntrySpan(others, minute)
+      handleCreateEntryAt(span.startMinute, span.endMinute)
+    },
+    [dayRef, getCurrentMinute, handleCreateEntryAt],
+  )
 
   const {
     pushState,
@@ -406,6 +425,7 @@ export function App() {
                     tempoWorklogs={visibleTempoWorklogs}
                     localWorklogIds={localWorklogIds}
                     blockDragPreview={blockDragPreview}
+                    onCreateEntryAt={handleCreateEntryAtMinute}
                     onToggleExpand={handleTimelineBlockClick}
                     onAbsorbGap={handleAbsorbGap}
                     onMerge={handleMerge}
