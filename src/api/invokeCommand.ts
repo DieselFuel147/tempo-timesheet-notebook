@@ -1,4 +1,4 @@
-import type { NativeCommandError, TauriCommandContracts, TauriCommandOutput } from '../../shared/tauri-contracts'
+import type { NativeCommandError, TauriCommandContracts, TauriCommandOutput } from '@shared/tauri-contracts'
 
 type InvokeArgs = Record<string, unknown> | undefined
 

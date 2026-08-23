@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import PsychologyIcon from '@mui/icons-material/Psychology'
-import { api } from './api'
+import { api } from '@app/api'
 import { Autocomplete, Box, TextField, useTheme } from '@mui/material'
-import { MONO_FONT } from './theme'
+import { MONO_FONT } from '@app/theme'
 
 interface Props {
   value: string

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { defaultConfig } from './validation'
 import {
+  cloneSettings,
   defaultSettings,
   toValidationConfig,
   mergeSettings,
@@ -52,6 +53,21 @@ describe('toValidationConfig', () => {
 
   it('round-trips the default settings back to the default config', () => {
     expect(toValidationConfig(defaultSettings)).toEqual(defaultConfig)
+  })
+})
+
+describe('cloneSettings', () => {
+  it('returns an equal copy whose nested sections can mutate independently', () => {
+    const original = mergeSettings({ validation: { maxDayHours: 9 }, ai: { enabled: true } })
+    const copy = cloneSettings(original)
+    expect(copy).toEqual(original)
+
+    copy.validation.maxDayHours = 10
+    copy.connections.jira.email = 'someone@example.com'
+    copy.ai.enabled = false
+    expect(original.validation.maxDayHours).toBe(9)
+    expect(original.connections.jira.email).toBe('')
+    expect(original.ai.enabled).toBe(true)
   })
 })
 
