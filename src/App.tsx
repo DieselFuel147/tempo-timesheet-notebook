@@ -39,7 +39,7 @@ import { NotebookEditorPanel } from '@app/features/notebook/NotebookEditorPanel'
 import { TimelinePanel } from '@app/features/timeline/TimelinePanel'
 import { SummaryTruncationDialog } from '@app/features/sync/SummaryTruncationDialog'
 import { addDays, formatHours, minutesToHHmm, parseDuration, prettyDate, todayISO } from './dateutil'
-import { Settings } from './Settings'
+import { SettingsPage } from '@app/features/settings/SettingsPage'
 import { readAppearance, writeAppearance, type Appearance } from './appearance'
 import { DatePicker } from '@mui/x-date-pickers/DatePicker'
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider'
@@ -878,7 +878,7 @@ export function App() {
           }}
         >
           <Box sx={{ maxWidth: 900, mx: 'auto', width: '100%' }}>
-            <Settings
+            <SettingsPage
               settings={settings}
               onSaved={setSettings}
               onClose={() => setShowSettings(false)}
