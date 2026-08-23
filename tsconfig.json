@@ -15,10 +15,9 @@
     "noEmit": true,
     "useDefineForClassFields": true,
     "types": ["node"],
-    "baseUrl": ".",
     "paths": {
-      "@app/*": ["src/*"],
-      "@shared/*": ["shared/*"]
+      "@app/*": ["./src/*"],
+      "@shared/*": ["./shared/*"]
     }
   },
   "include": ["src", "shared", "vite.config.ts"]
