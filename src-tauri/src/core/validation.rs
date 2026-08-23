@@ -240,7 +240,7 @@ fn fmt_min(minutes: i32) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{default_ticket_pattern, validate_notebook_day, validate_notebook_block, IssueLevel, ValidationConfig, ValidationIssue};
+    use super::{default_ticket_pattern, validate_notebook_day, validate_notebook_block, IssueLevel, ValidationConfig};
     use crate::state::NotebookBlock;
 
     fn default_validation_config() -> ValidationConfig {
@@ -253,12 +253,6 @@ mod tests {
             min_day_hours: 4.0,
             max_day_hours: 12.0,
         }
-    }
-
-    fn codes(issues: &[ValidationIssue]) -> Vec<String> {
-        let mut values = issues.iter().map(|issue| issue.code.clone()).collect::<Vec<_>>();
-        values.sort();
-        values
     }
 
     fn block(overrides: impl FnOnce(&mut NotebookBlock)) -> NotebookBlock {
