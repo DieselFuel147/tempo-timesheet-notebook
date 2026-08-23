@@ -2,7 +2,7 @@ name: PR release type
 
 on:
   pull_request:
-    types: [opened, edited, labeled, unlabeled]
+    types: [opened, edited, labeled, unlabeled, synchronize]
 
 permissions:
   issues: write
@@ -26,9 +26,10 @@ jobs:
           set -euo pipefail
 
           # Make sure the three release labels exist so they can be applied.
+          # --repo is required: there is no git checkout in this job.
           ensure_label() {
-            gh label list --json name --jq '.[].name' | grep -qx "$1" || {
-              gh label create "$1" --color "$2" --description "$3"
+            gh label list --repo "${REPO}" --json name --jq '.[].name' | grep -qx "$1" || {
+              gh label create "$1" --repo "${REPO}" --color "$2" --description "$3"
             }
           }
           ensure_label patch 0E8A16 "Release: bug fixes and cleanup (default)"
