@@ -60,7 +60,7 @@ export function useBlockDrag({ dayRef, commitDay, getCurrentMinute, setExpandedI
           }))
         } else {
           const min = current.startMinute + MIN_BLOCK_DURATION_MINUTES
-          const max = next?.startMinute ?? getCurrentMinute(currentDay.date)
+          const max = next?.startMinute ?? DAY_MINUTES
           nextValue = Math.min(Math.max(nextValue, min), max)
           commitDay((dayState) => ({
             date: dayState.date,
