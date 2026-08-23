@@ -14,11 +14,32 @@ import AccessTimeIcon from '@mui/icons-material/AccessTime'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth'
 import FilterAltIcon from '@mui/icons-material/FilterAlt'
-import type { DryRunSummary, JiraProfile, NotebookBlock, NotebookDay, PushSummary, TempoWorklog } from '@shared/types'
-import { defaultSettings, type Settings as AppSettings } from '@shared/settings'
+import type { JiraProfile, NotebookBlock, NotebookDay, TempoWorklog } from '@shared/types'
+import { cloneSettings, defaultSettings, type Settings as AppSettings } from '@shared/settings'
 import { autoSummary, isPersistedNotebookBlock, notebookBlockSummary, truncatedAutoSummaries, type TruncatedSummaryEntry } from '@shared/notebook'
 import { parseTime, validateNotebookDay, type ValidationIssue } from '@shared/validation'
 import { api } from '@app/api'
+import {
+  DAY_MINUTES,
+  DEBUG_TIME_SCALE,
+  MIN_BLOCK_DURATION_MINUTES,
+  TIMELINE_REFRESH_MS,
+  blockDuration,
+  blockHasPushRelevantChanges,
+  cloneBlock,
+  createBlankBlock,
+  effectiveIdleThresholdMs,
+  getTimedBlocks,
+  markBlockDirty,
+  normalizeNotebookDay,
+  persistedNotebookDay,
+  wallClockMinuteForDate,
+} from '@app/features/notebook/blockModel'
+import { assignBlockColors } from '@app/features/notebook/blockColors'
+import { toTempoWorklogViews } from '@app/features/sync/tempoViews'
+import { blockSyncLabel, isPushableBlock, type PushState } from '@app/features/sync/syncStatus'
+import { MIN_BLOCK_PIXEL_FLOOR, PX_PER_MINUTE, RULER_GUTTER } from '@app/features/timeline/constants'
+import { clampTimelineWidth, readTimelineWidth, writeTimelineWidth } from '@app/features/timeline/timelineWidth'
 import { addDays, formatHours, minutesToHHmm, parseDuration, prettyDate, todayISO } from './dateutil'
 import { Settings } from './Settings'
 import { SummaryTruncationDialog } from '@app/features/sync/SummaryTruncationDialog'
@@ -54,245 +75,15 @@ import { MONO_FONT } from './theme'
 import { useAppTheme } from './useAppTheme'
 import { TicketField } from '@app/features/notebook/TicketField'
 
-const IDLE_THRESHOLD_MS = 3 * 60 * 1000
-const TIMELINE_REFRESH_MS = 1000
-const PX_PER_MINUTE = 4
-// Purely so a zero/one-minute block still has a clickable hit area; must stay
-// small enough that it never causes visual overlap with the next block.
-const MIN_BLOCK_PIXEL_FLOOR = 4
-// Width of the left-hand gutter reserved for "HH:00" hour labels on the ruler.
-const RULER_GUTTER = 44
-const MIN_BLOCK_DURATION_MINUTES = 1
-const DEBUG_TIME_SCALE = Number(import.meta.env.VITE_NOTEBOOK_TIME_SCALE ?? '1')
-const DAY_MINUTES = 24 * 60
-
 // Stable identities for the closed truncation gate so the dialog's props
 // don't churn (and its draft-reset effect doesn't refire) on every render.
 const NO_ENTRIES: TruncatedSummaryEntry[] = []
 const NO_IDS: ReadonlySet<string> = new Set()
 
-// Draggable notebook/timeline split (desktop row layout only). Bounds keep both
-// panels usable regardless of how far the handle is dragged.
-const DEFAULT_TIMELINE_WIDTH = 380
-const MIN_TIMELINE_WIDTH = 280
-const MAX_TIMELINE_WIDTH = 760
-const TIMELINE_WIDTH_KEY = 'tempo:timeline-width'
-
-function clampTimelineWidth(width: number): number {
-  return Math.min(MAX_TIMELINE_WIDTH, Math.max(MIN_TIMELINE_WIDTH, width))
-}
-
-function readTimelineWidth(): number {
-  if (typeof window === 'undefined') return DEFAULT_TIMELINE_WIDTH
-  const parsed = Number(window.localStorage.getItem(TIMELINE_WIDTH_KEY))
-  return Number.isFinite(parsed) && parsed > 0 ? clampTimelineWidth(parsed) : DEFAULT_TIMELINE_WIDTH
-}
-
-function writeTimelineWidth(width: number): void {
-  if (typeof window === 'undefined') return
-  window.localStorage.setItem(TIMELINE_WIDTH_KEY, String(Math.round(width)))
-}
-
-// Chronological color assignment with shared-ticket grouping: blocks sharing a
-// non-empty ticket ID adopt the earliest color assigned to that ticket; every
-// other persisted block cycles through the palette. Used by both the editor
-// left-borders and the ruler so a ticket keeps one color across both surfaces.
-function assignBlockColors(blocks: NotebookBlock[], palette: string[]): Map<string, string> {
-  const byBlock = new Map<string, string>()
-  const byTicket = new Map<string, string>()
-  let next = 0
-  for (const block of blocks) {
-    if (!isPersistedBlock(block)) continue
-    const ticketId = block.ticketId.trim()
-    let color: string
-    if (ticketId) {
-      if (!byTicket.has(ticketId)) {
-        byTicket.set(ticketId, palette[next % palette.length])
-        next += 1
-      }
-      color = byTicket.get(ticketId) as string
-    } else {
-      color = palette[next % palette.length]
-      next += 1
-    }
-    byBlock.set(block.id, color)
-  }
-  return byBlock
-}
-
-type PushState =
-  | { mode: 'idle' }
-  | { mode: 'running'; action: 'dry-run' | 'push' }
-  | { mode: 'done'; action: 'dry-run' | 'push'; summary: DryRunSummary | PushSummary }
-
 interface DayTimeAnchor {
   date: string
   wallClockStartMs: number
   minuteBase: number
-}
-
-function cloneSettings(settings: AppSettings): AppSettings {
-  return {
-    validation: { ...settings.validation },
-    connections: {
-      jira: { ...settings.connections.jira },
-      tempo: { ...settings.connections.tempo },
-    },
-    ai: { ...settings.ai },
-  }
-}
-
-function createBlankBlock(date: string): NotebookBlock {
-  return {
-    id: crypto.randomUUID(),
-    date,
-    startMinute: null,
-    endMinute: null,
-    text: '',
-    closed: false,
-    ticketId: '',
-    summaryOverride: null,
-    tempoWorklogId: null,
-    syncedAt: null,
-  }
-}
-
-function cloneBlock(block: NotebookBlock): NotebookBlock {
-  return {
-    ...block,
-    summaryOverride: block.summaryOverride ?? null,
-    manualEnd: block.manualEnd ?? false,
-    tempoWorklogId: block.tempoWorklogId ?? null,
-    syncedAt: block.syncedAt ?? null,
-  }
-}
-
-function markBlockDirty(block: NotebookBlock): NotebookBlock {
-  return {
-    ...block,
-    tempoWorklogId: null,
-    syncedAt: null,
-  }
-}
-
-function blockHasPushRelevantChanges(previous: NotebookBlock, next: NotebookBlock): boolean {
-  return (
-    previous.startMinute !== next.startMinute ||
-    previous.endMinute !== next.endMinute ||
-    previous.closed !== next.closed ||
-    previous.ticketId !== next.ticketId ||
-    notebookBlockSummary(previous) !== notebookBlockSummary(next)
-  )
-}
-
-function normalizeNotebookDay(day: NotebookDay): NotebookDay {
-  const clonedBlocks = day.blocks.map(cloneBlock)
-  const blocks = clonedBlocks.length > 0 ? clonedBlocks : [createBlankBlock(day.date)]
-  const last = blocks[blocks.length - 1]
-  const needsTrailingBlank =
-    last.startMinute !== null || last.text.trim().length > 0 || last.ticketId.trim().length > 0
-
-  return {
-    date: day.date,
-    blocks: needsTrailingBlank ? [...blocks, createBlankBlock(day.date)] : blocks,
-  }
-}
-
-function persistedNotebookDay(day: NotebookDay): NotebookDay {
-  return {
-    date: day.date,
-    blocks: day.blocks
-      .filter((block) => block.startMinute !== null || block.text.trim().length > 0 || block.ticketId.trim().length > 0)
-      .map(cloneBlock),
-  }
-}
-
-function wallClockMinuteForDate(date: string): number {
-  const now = new Date()
-  const today = todayISO()
-  if (date !== today) return 17 * 60
-  return now.getHours() * 60 + now.getMinutes()
-}
-
-function effectiveIdleThresholdMs(): number {
-  return IDLE_THRESHOLD_MS / Math.max(DEBUG_TIME_SCALE, 0.0001)
-}
-
-function blockDuration(block: NotebookBlock, nowMinute: number): number | null {
-  if (block.startMinute === null) return null
-  const endMinute = block.closed ? block.endMinute : nowMinute
-  if (endMinute === null) return null
-  return Math.max(0, endMinute - block.startMinute)
-}
-
-interface TimedBlockInfo {
-  block: NotebookBlock
-  index: number
-  startMinute: number
-  endMinute: number
-}
-
-function getTimedBlocks(blocks: NotebookBlock[], nowMinute: number): TimedBlockInfo[] {
-  return blocks
-    .map((block, index) => {
-      if (block.startMinute === null) return null
-      return {
-        block,
-        index,
-        startMinute: block.startMinute,
-        endMinute: block.closed ? block.endMinute ?? block.startMinute : nowMinute,
-      }
-    })
-    .filter((item): item is TimedBlockInfo => item !== null)
-    .sort((left, right) => left.startMinute - right.startMinute)
-}
-
-function isPersistedBlock(block: NotebookBlock): boolean {
-  return block.startMinute !== null || block.text.trim().length > 0 || block.ticketId.trim().length > 0
-}
-
-interface TempoWorklogView extends TempoWorklog {
-  startMinute: number
-  endMinute: number
-  inNotebook: boolean
-}
-
-// Tempo worklog startTime is "HH:mm:ss"; map to minutes-from-midnight so read
-// worklogs share the ruler's coordinate space with editable notebook blocks.
-function parseStartTimeToMinute(startTime: string): number | null {
-  const match = /^(\d{1,2}):(\d{2})/.exec(startTime.trim())
-  if (!match) return null
-  const hours = Number(match[1])
-  const minutes = Number(match[2])
-  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null
-  return Math.min(DAY_MINUTES, Math.max(0, hours * 60 + minutes))
-}
-
-function toTempoWorklogViews(worklogs: TempoWorklog[], localWorklogIds: Set<number>): TempoWorklogView[] {
-  return worklogs
-    .map((worklog) => {
-      const startMinute = parseStartTimeToMinute(worklog.startTime)
-      if (startMinute === null) return null
-      const durationMinutes = Math.max(1, Math.round(worklog.timeSpentSeconds / 60))
-      return {
-        ...worklog,
-        startMinute,
-        endMinute: Math.min(DAY_MINUTES, startMinute + durationMinutes),
-        inNotebook: localWorklogIds.has(worklog.tempoWorklogId),
-      }
-    })
-    .filter((view): view is TempoWorklogView => view !== null)
-    .sort((left, right) => left.startMinute - right.startMinute)
-}
-
-function isPushableBlock(block: NotebookBlock): boolean {
-  return block.closed && block.startMinute !== null && block.endMinute !== null && notebookBlockSummary(block).trim().length > 0
-}
-
-function blockSyncLabel(block: NotebookBlock): { label: string; color: 'default' | 'success' | 'warning' } | null {
-  if (!isPersistedNotebookBlock(block) || !isPushableBlock(block)) return null
-  if (block.tempoWorklogId) return { label: 'synced to Tempo', color: 'success' }
-  return { label: 'ready to sync', color: 'warning' }
 }
 
 function buildLegacyProfileLabel(profile: JiraProfile | null): string {
@@ -436,7 +227,7 @@ const NotebookEditorPanel = memo(function NotebookEditorPanel({
 
   return (
     <Box>
-      {blocks.length === 1 && !isPersistedBlock(blocks[0]) && (
+      {blocks.length === 1 && !isPersistedNotebookBlock(blocks[0]) && (
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
           Start typing below. The first keystroke opens the first notebook block.
         </Typography>
@@ -446,7 +237,7 @@ const NotebookEditorPanel = memo(function NotebookEditorPanel({
         {blocks.map((block) => {
           const issues = issuesByBlock.get(block.id) ?? []
           const ticketInvalid = issues.some((issue) => issue.code === 'INVALID_TICKET' && issue.level === 'error')
-          const isBlank = !isPersistedBlock(block)
+          const isBlank = !isPersistedNotebookBlock(block)
           const isReopenable = block.id === activeReopenableId
           const isLive = block.id === activeStartedId
           const syncChip = blockSyncLabel(block)
@@ -1835,7 +1626,7 @@ export function App() {
       }, 0),
     [day, nowMinute, timelineTick],
   )
-  const trackedCount = useMemo(() => (day?.blocks ?? []).filter(isPersistedBlock).length, [day])
+  const trackedCount = useMemo(() => (day?.blocks ?? []).filter(isPersistedNotebookBlock).length, [day])
   const pushableBlocks = useMemo(() => (day?.blocks ?? []).filter(isPushableBlock), [day])
   const syncedBlocks = useMemo(() => pushableBlocks.filter((block) => block.tempoWorklogId).length, [pushableBlocks])
   const unsyncedBlocks = useMemo(() => pushableBlocks.filter((block) => !block.tempoWorklogId).length, [pushableBlocks])
@@ -2248,7 +2039,7 @@ export function App() {
                     </Typography>
                   </Stack>
                   <TimelinePanel
-                    blocks={day.blocks.filter((block) => isPersistedBlock(block))}
+                    blocks={day.blocks.filter((block) => isPersistedNotebookBlock(block))}
                     nowMinute={nowMinute}
                     expandedId={expandedId}
                     tempoWorklogs={visibleTempoWorklogs}

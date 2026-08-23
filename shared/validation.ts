@@ -1,4 +1,5 @@
 import type { NotebookBlock } from './types'
+import { notebookBlockDurationMinutes } from './notebook'
 
 // Pure validation, shared by the browser (live feedback as you type) and the
 // server (the gate that runs again before anything is pushed to Tempo — the
@@ -70,12 +71,6 @@ export function summarizeIssues(issues: ValidationIssue[]) {
   const errors = issues.filter((i) => i.level === 'error')
   const warnings = issues.filter((i) => i.level === 'warning')
   return { errors, warnings, hasErrors: errors.length > 0 }
-}
-
-/** Notebook-block duration in minutes, or null if the block is not fully timed. */
-export function notebookBlockDurationMinutes(block: NotebookBlock): number | null {
-  if (block.startMinute === null || block.endMinute === null) return null
-  return block.endMinute - block.startMinute
 }
 
 /** Validate a single notebook block in isolation. */

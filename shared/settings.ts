@@ -81,7 +81,7 @@ function normalizeBaseUrl(value: string): string {
   return value.trim().replace(/\/+$/, '')
 }
 
-function cloneSettings(settings: Settings): Settings {
+export function cloneSettings(settings: Settings): Settings {
   return {
     validation: { ...settings.validation },
     connections: {
