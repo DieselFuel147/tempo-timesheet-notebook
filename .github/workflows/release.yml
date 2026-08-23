@@ -21,10 +21,10 @@ jobs:
       version: ${{ steps.bump.outputs.version }}
     steps:
       - name: Check out code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
 
@@ -37,13 +37,15 @@ jobs:
           set -euo pipefail
           export VERSION
 
-          # Only release on merges of pull requests into main.
+          # Only release on merges of pull requests into main. Note that a
+          # merged PR reports state "closed" with merged=true.
           PR_NUMBER="$(gh api \
             "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls" \
-            --jq '[.[] | select(.state == "merged")][0].number' || true)"
+            --jq '[.[] | select(.merged == true)][0].number' || true)"
 
           if [ -z "${PR_NUMBER}" ] || [ "${PR_NUMBER}" = "null" ]; then
-            echo "No merged pull request for ${GITHUB_SHA}; skipping release."
+            echo "::notice::Push ${GITHUB_SHA} is not a merged pull request; skipping release."
+            echo "Skipped: not a merged pull request." >> "$GITHUB_STEP_SUMMARY"
             echo "released=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -105,6 +107,7 @@ jobs:
             echo "released=true"
             echo "version=${VERSION}"
           } >> "$GITHUB_OUTPUT"
+          echo "Releasing ${VERSION} from PR #${PR_NUMBER}" >> "$GITHUB_STEP_SUMMARY"
 
   build-and-release:
     needs: version-bump
@@ -112,12 +115,12 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Check out release tag
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: v${{ needs.version-bump.outputs.version }}
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
