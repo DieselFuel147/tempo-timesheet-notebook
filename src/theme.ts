@@ -26,6 +26,7 @@ interface LedgerTokens {
   instructionBar: string
   ruledPaperBase: string
   ruledPaperLine: string
+  entryCardBg: string
   rulerPanel: string
   rulerTickMajor: string
   rulerTickMinor: string
@@ -44,6 +45,7 @@ const ledgerTokensByMode: Record<ThemeMode, LedgerTokens> = {
     instructionBar: '#E2E5D8',
     ruledPaperBase: '#EDEFE7',
     ruledPaperLine: '#DEE2D2',
+    entryCardBg: '#E4E7DA',
     rulerPanel: '#F4F5EF',
     rulerTickMajor: '#B9C0AE',
     rulerTickMinor: '#DDE1D4',
@@ -60,6 +62,7 @@ const ledgerTokensByMode: Record<ThemeMode, LedgerTokens> = {
     instructionBar: '#20231D',
     ruledPaperBase: '#22241E',
     ruledPaperLine: '#2B2E26',
+    entryCardBg: '#1C1F19',
     rulerPanel: '#1E201A',
     rulerTickMajor: '#4A5142',
     rulerTickMinor: '#33372D',
