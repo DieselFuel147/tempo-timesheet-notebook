@@ -51,6 +51,20 @@ export function markBlockDirty(block: NotebookBlock): NotebookBlock {
   }
 }
 
+export function replaceBlockById(
+  blocks: NotebookBlock[],
+  id: string,
+  mutate: (block: NotebookBlock) => NotebookBlock,
+): NotebookBlock[] {
+  return blocks.map((block) => (block.id === id ? mutate(block) : block))
+}
+
+/** Applies a patch, clearing Tempo identity when push-relevant fields changed. */
+export function patchBlock(block: NotebookBlock, patch: Partial<NotebookBlock>): NotebookBlock {
+  const nextBlock = { ...block, ...patch }
+  return blockHasPushRelevantChanges(block, nextBlock) ? markBlockDirty(nextBlock) : nextBlock
+}
+
 export function blockHasPushRelevantChanges(previous: NotebookBlock, next: NotebookBlock): boolean {
   return (
     previous.startMinute !== next.startMinute ||
