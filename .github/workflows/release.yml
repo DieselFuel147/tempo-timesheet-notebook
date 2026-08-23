@@ -1,0 +1,147 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  version-bump:
+    # Skip runs triggered by the bot's own release commit.
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    outputs:
+      released: ${{ steps.bump.outputs.released }}
+      version: ${{ steps.bump.outputs.version }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Bump version, tag, and push
+        id: bump
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          export VERSION
+
+          # Only release on merges of pull requests into main.
+          PR_NUMBER="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls" \
+            --jq '[.[] | select(.state == "merged")][0].number' || true)"
+
+          if [ -z "${PR_NUMBER}" ] || [ "${PR_NUMBER}" = "null" ]; then
+            echo "No merged pull request for ${GITHUB_SHA}; skipping release."
+            echo "released=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          LABELS="$(gh pr view "${PR_NUMBER}" --json labels --jq '.labels[].name' || true)"
+          if grep -qx 'major' <<<"${LABELS}"; then
+            LEVEL=major
+          elif grep -qx 'minor' <<<"${LABELS}"; then
+            LEVEL=minor
+          else
+            LEVEL=patch
+          fi
+          echo "PR #${PR_NUMBER}: bumping ${LEVEL}"
+
+          # Source of truth is package.json; any prerelease suffix is dropped.
+          CURRENT="$(node -p 'require("./package.json").version')"
+          BASE="${CURRENT%%-*}"
+          IFS='.' read -r MAJOR MINOR PATCH <<<"${BASE}"
+          case "${LEVEL}" in
+            major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+            minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+            patch) PATCH=$((PATCH + 1)) ;;
+          esac
+          VERSION="${MAJOR}.${MINOR}.${PATCH}"
+          echo "Version ${CURRENT} -> ${VERSION}"
+
+          # package.json + package-lock.json
+          npm version "${VERSION}" --no-git-tag-version
+
+          # tauri.conf.json
+          node -e '
+            const fs = require("fs");
+            const file = "src-tauri/tauri.conf.json";
+            const conf = JSON.parse(fs.readFileSync(file, "utf8"));
+            conf.version = process.env.VERSION;
+            fs.writeFileSync(file, JSON.stringify(conf, null, 2) + "\n");
+          '
+
+          # Cargo.toml ([package] section only)
+          awk -v ver="${VERSION}" '
+            /^\[/ { in_package = ($0 == "[package]") }
+            in_package && /^version *=/ { $0 = "version = \"" ver "\"" }
+            { print }
+          ' src-tauri/Cargo.toml > src-tauri/Cargo.toml.tmp
+          mv src-tauri/Cargo.toml.tmp src-tauri/Cargo.toml
+
+          # Keep Cargo.lock in sync with the new crate version.
+          (cd src-tauri && cargo update -w)
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock
+          git commit -m "chore(release): v${VERSION}"
+          git tag "v${VERSION}"
+          git push origin HEAD:main
+          git push origin "refs/tags/v${VERSION}"
+
+          {
+            echo "released=true"
+            echo "version=${VERSION}"
+          } >> "$GITHUB_OUTPUT"
+
+  build-and-release:
+    needs: version-bump
+    if: needs.version-bump.outputs.released == 'true'
+    runs-on: macos-latest
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@v4
+        with:
+          ref: v${{ needs.version-bump.outputs.version }}
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Build macOS app bundle
+        run: npm run tauri:build
+
+      - name: Create GitHub release with artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v${{ needs.version-bump.outputs.version }}" \
+            --title "v${{ needs.version-bump.outputs.version }}" \
+            --generate-notes \
+            --verify-tag \
+            src-tauri/target/release/bundle/dmg/*.dmg

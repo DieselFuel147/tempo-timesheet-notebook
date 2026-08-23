@@ -1,0 +1,113 @@
+name: PR release type
+
+on:
+  pull_request:
+    types: [opened, edited, labeled, unlabeled]
+
+permissions:
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: pr-release-type-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report next version for this PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # Make sure the three release labels exist so they can be applied.
+          ensure_label() {
+            gh label list --json name --jq '.[].name' | grep -qx "$1" || {
+              gh label create "$1" --color "$2" --description "$3"
+            }
+          }
+          ensure_label patch 0E8A16 "Release: bug fixes and cleanup (default)"
+          ensure_label minor 1D76DB "Release: new features"
+          ensure_label major D93F0B "Release: breaking changes"
+
+          # Infer a bump level from the PR title.
+          TITLE_LOWER="$(printf '%s' "${PR_TITLE}" | tr '[:upper:]' '[:lower:]')"
+          case "${TITLE_LOWER}" in
+            *"!"*|*break*)
+              INFERRED=major
+              INFERENCE="breaking-change marker in the title"
+              ;;
+            feat*|feature*|add*|allow*|support*|introduce*)
+              INFERRED=minor
+              INFERENCE="title looks like a feature"
+              ;;
+            *)
+              INFERRED=patch
+              INFERENCE="default for fixes, refactors and chores"
+              ;;
+          esac
+
+          # Release labels currently on the PR.
+          LABEL_LIST="$(gh api "repos/${REPO}/issues/${PR_NUMBER}/labels" \
+            --jq '[.[].name | select(. == "major" or . == "minor" or . == "patch")] | join(",")')"
+
+          if [[ "${LABEL_LIST}" == *major* ]]; then
+            EFFECTIVE=major
+          elif [[ "${LABEL_LIST}" == *minor* ]]; then
+            EFFECTIVE=minor
+          elif [[ "${LABEL_LIST}" == *patch* ]]; then
+            EFFECTIVE=patch
+          else
+            EFFECTIVE="${INFERRED}"
+          fi
+
+          LABEL_COUNT="$(tr ',' '\n' <<<"${LABEL_LIST}" | grep -c . || true)"
+
+          # Compute what the next version would be.
+          CURRENT="$(gh api "repos/${REPO}/contents/package.json" --jq '.content' \
+            | base64 --decode \
+            | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).version')"
+          BASE="${CURRENT%%-*}"
+          IFS='.' read -r MAJOR MINOR PATCH <<<"${BASE}"
+          case "${EFFECTIVE}" in
+            major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+            minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+            patch) PATCH=$((PATCH + 1)) ;;
+          esac
+          NEXT="v${MAJOR}.${MINOR}.${PATCH}"
+
+          # Build the comment body.
+          BODY_FILE="$(mktemp)"
+          {
+            echo "<!-- release-type-report -->"
+            echo ""
+            echo "### Next release if merged now: \`${NEXT}\`"
+            echo ""
+            echo "- Effective bump level: \`${EFFECTIVE}\`"
+            if [[ "${LABEL_COUNT}" -gt 1 ]]; then
+              echo "- **Multiple release labels set** (\`${LABEL_LIST}\`); precedence applies: major over minor over patch."
+            elif [[ -n "${LABEL_LIST}" ]]; then
+              echo "- From label: \`${LABEL_LIST}\` (title inference ignored)"
+            else
+              echo "- No release label set yet; using title inference."
+            fi
+            echo "- Title inference: \`${INFERRED}\` (${INFERENCE})"
+            echo ""
+            echo "Add or remove a \`major\`, \`minor\` or \`patch\` label to change this. The release uses your labels first and only falls back to this title guess when none are set. This comment updates automatically."
+          } >"${BODY_FILE}"
+
+          # Update the existing bot comment, or create one.
+          COMMENT_ID="$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+            --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | contains("<!-- release-type-report -->"))) | .id' \
+            | head -n1 || true)"
+
+          if [[ -n "${COMMENT_ID}" ]]; then
+            gh api -X PATCH "repos/${REPO}/issues/comments/${COMMENT_ID}" -F body=@"${BODY_FILE}" >/dev/null
+          else
+            gh api -X POST "repos/${REPO}/issues/${PR_NUMBER}/comments" -F body=@"${BODY_FILE}" >/dev/null
+          fi
