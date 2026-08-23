@@ -61,8 +61,8 @@ function NotebookTimeFields({ block, onTimeChange, onDurationChange }: NotebookT
   const displayDuration = durationMinutes !== null ? formatHours(durationMinutes) : ''
   const [isEditing, setIsEditing] = useState(false)
   const [editValue, setEditValue] = useState('')
-  const timeFieldSx = { width: 104, '& input': { fontFamily: MONO_FONT, fontSize: 13, py: 0.5, px: 0.5, textAlign: 'center', lineHeight: 1 } }
-  const durationFieldSx = { width: 72, '& input': { fontFamily: MONO_FONT, fontSize: 13, py: 0.5, px: 0.5, textAlign: 'center', lineHeight: 1 } }
+  const timeFieldSx = { width: 104, '& .MuiInputBase-root': { backgroundColor: 'background.paper' }, '& input': { fontFamily: MONO_FONT, fontSize: 13, py: 0.5, px: 0.5, textAlign: 'center', lineHeight: 1 } }
+  const durationFieldSx = { width: 72, '& .MuiInputBase-root': { backgroundColor: 'background.paper' }, '& input': { fontFamily: MONO_FONT, fontSize: 13, py: 0.5, px: 0.5, textAlign: 'center', lineHeight: 1 } }
 
   useEffect(() => {
     setEditValue(displayDuration)
@@ -184,7 +184,7 @@ export const NotebookEditorPanel = memo(function NotebookEditorPanel({
                 borderColor: isReopenable ? 'warning.main' : 'divider',
                 borderStyle: isReopenable ? 'dashed' : 'solid',
                 borderLeft: accent && !isReopenable ? `3px solid ${accent}` : undefined,
-                backgroundColor: isBlank ? 'transparent' : 'background.paper',
+                backgroundColor: theme.ledger.entryCardBg,
               }}
             >
               <Stack spacing={1}>
