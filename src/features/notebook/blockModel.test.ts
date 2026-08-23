@@ -89,6 +89,28 @@ describe('block model', () => {
     expect(withoutTrailingBlank.blocks[1].startMinute).toBeNull()
   })
 
+  it('inserts a retroactively added closed entry at its chronological position', () => {
+    const morning = block({ id: 'morning', startMinute: 9 * 60, endMinute: 10 * 60 })
+    const afternoon = block({ id: 'afternoon', startMinute: 14 * 60, endMinute: 15 * 60 })
+    // Added last but covering a missed 11:00–12:00 gap.
+    const retro = block({ id: 'retro', startMinute: 11 * 60, endMinute: 12 * 60 })
+
+    const day = normalizeNotebookDay({ date: '2025-05-09', blocks: [morning, afternoon, retro] })
+    expect(day.blocks.slice(0, 3).map((b) => b.id)).toEqual(['morning', 'retro', 'afternoon'])
+    // The trailing blank still closes out the list.
+    expect(day.blocks[3].startMinute).toBeNull()
+  })
+
+  it('keeps open entries and drafts anchored after the closed ones in their relative order', () => {
+    const late = block({ id: 'late', startMinute: 14 * 60, endMinute: 15 * 60 })
+    const early = block({ id: 'early', startMinute: 8 * 60, endMinute: 9 * 60 })
+    const live = block({ id: 'live', startMinute: 16 * 60, endMinute: null, closed: false })
+    const draft = block({ id: 'draft', startMinute: null, endMinute: null, closed: false })
+
+    const day = normalizeNotebookDay({ date: '2025-05-09', blocks: [late, early, live, draft] })
+    expect(day.blocks.slice(0, 4).map((b) => b.id)).toEqual(['early', 'late', 'live', 'draft'])
+  })
+
   it('persists only blocks with content', () => {
     const day = persistedNotebookDay({
       date: '2025-05-09',
