@@ -1,18 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
-import SettingsIcon from '@mui/icons-material/Settings'
-import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
-import ChevronRightIcon from '@mui/icons-material/ChevronRight'
-import TodayIcon from '@mui/icons-material/Today'
-import PlayArrowIcon from '@mui/icons-material/PlayArrow'
-import UploadIcon from '@mui/icons-material/Upload'
-import SyncIcon from '@mui/icons-material/Sync'
-import AccessTimeIcon from '@mui/icons-material/AccessTime'
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
-import CalendarMonthIcon from '@mui/icons-material/CalendarMonth'
 import FilterAltIcon from '@mui/icons-material/FilterAlt'
+import { Tooltip } from '@mui/material'
 import type { JiraProfile, NotebookBlock, NotebookDay, TempoWorklog } from '@shared/types'
 import { cloneSettings, defaultSettings, type Settings as AppSettings } from '@shared/settings'
-import { isPersistedNotebookBlock, notebookBlockSummary, truncatedAutoSummaries, type TruncatedSummaryEntry } from '@shared/notebook'
+import { isPersistedNotebookBlock, truncatedAutoSummaries, type TruncatedSummaryEntry } from '@shared/notebook'
 import { validateNotebookDay, parseTime, type ValidationIssue } from '@shared/validation'
 import { api } from '@app/api'
 import {
@@ -38,32 +29,27 @@ import { clampTimelineWidth, readTimelineWidth, writeTimelineWidth } from '@app/
 import { NotebookEditorPanel } from '@app/features/notebook/NotebookEditorPanel'
 import { TimelinePanel } from '@app/features/timeline/TimelinePanel'
 import { SummaryTruncationDialog } from '@app/features/sync/SummaryTruncationDialog'
-import { addDays, formatHours, minutesToHHmm, parseDuration, prettyDate, todayISO } from './dateutil'
+import { TempoSyncSection } from '@app/features/sync/TempoSyncSection'
+import { AppHeader } from '@app/features/shell/AppHeader'
+import { DateToolbar } from '@app/features/shell/DateToolbar'
+import { StatusBar } from '@app/features/shell/StatusBar'
+import { minutesToHHmm, parseDuration, todayISO } from './dateutil'
 import { SettingsPage } from '@app/features/settings/SettingsPage'
 import { readAppearance, writeAppearance, type Appearance } from './appearance'
-import { DatePicker } from '@mui/x-date-pickers/DatePicker'
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider'
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
-import dayjs from 'dayjs'
 import {
   Alert,
-  AppBar,
   Box,
-  Button,
-  Collapse,
   CssBaseline,
   FormControlLabel,
   IconButton,
   Menu,
-  Paper,
   Stack,
   Switch,
   ThemeProvider,
-  Toolbar,
-  Tooltip,
   Typography,
 } from '@mui/material'
-import { MONO_FONT } from './theme'
 import { useAppTheme } from './useAppTheme'
 
 // Stable identities for the closed truncation gate so the dialog's props
@@ -75,10 +61,6 @@ interface DayTimeAnchor {
   date: string
   wallClockStartMs: number
   minuteBase: number
-}
-
-function buildLegacyProfileLabel(profile: JiraProfile | null): string {
-  return profile ? `${profile.displayName} · ${profile.timeZone}` : 'not connected to Jira'
 }
 
 // Pointer travel (px) before a press on a block body counts as a drag rather
@@ -912,210 +894,33 @@ export function App() {
               overflow: 'hidden',
             }}
           >
-            <AppBar position="static" elevation={0} sx={{ bgcolor: theme.ledger.barBg, color: theme.ledger.barText }}>
-              <Toolbar sx={{ gap: 2, flexWrap: 'wrap', py: 1 }}>
-                <Stack direction="row" spacing={1.5} sx={{ flex: 1, minWidth: 0, alignItems: 'center' }}>
-                  <AccessTimeIcon />
-                  <Box sx={{ minWidth: 0 }}>
-                    <Typography variant="subtitle1" component="h1" sx={{ lineHeight: 1.15, fontWeight: 600 }} noWrap>
-                      Timesheet Notebook
-                    </Typography>
-                    <Typography variant="caption" sx={{ fontFamily: MONO_FONT, color: theme.ledger.headerCaption, display: 'block' }} noWrap>
-                      {buildLegacyProfileLabel(profile)}
-                    </Typography>
-                  </Box>
-                </Stack>
-                <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
-                  <Typography
-                    variant="subtitle2"
-                    sx={{ fontFamily: MONO_FONT, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}
-                    aria-label="Current time"
-                  >
-                    {clockLabel}
-                  </Typography>
-                  <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
-                    <Box
-                      sx={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: '50%',
-                        bgcolor: isLiveTyping ? 'secondary.main' : theme.ledger.headerCaption,
-                      }}
-                    />
-                    <Typography variant="caption" sx={{ fontFamily: MONO_FONT }}>
-                      {isLiveTyping ? 'logging' : 'idle'}
-                    </Typography>
-                  </Stack>
-                  <IconButton color="inherit" size="small" onClick={() => setShowSettings(true)} aria-label="Settings">
-                    <SettingsIcon fontSize="small" />
-                  </IconButton>
-                </Stack>
-              </Toolbar>
-            </AppBar>
+            <AppHeader
+              profile={profile}
+              clockLabel={clockLabel}
+              isLiveTyping={isLiveTyping}
+              onOpenSettings={() => setShowSettings(true)}
+            />
 
-            <Box
-              sx={{
-                px: { xs: 2, md: 3 },
-                py: 1.5,
-                bgcolor: theme.ledger.instructionBar,
-                borderBottom: '1px solid',
-                borderColor: 'divider',
-                display: 'flex',
-                flexWrap: 'wrap',
-                gap: 2,
-                justifyContent: 'space-between',
-                alignItems: 'center',
-              }}
-            >
-              <Box sx={{ minWidth: 0 }}>
-                <Typography variant="h6" sx={{ lineHeight: 1.2 }}>
-                  {prettyDate(date)}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Notes are the source of truth. Time is inferred while you work, and the timeline mirrors the same blocks.
-                </Typography>
-              </Box>
-              <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
-                <IconButton size="small" onClick={() => setDate(addDays(date, -1))} aria-label="Previous day">
-                  <ChevronLeftIcon />
-                </IconButton>
-                <DatePicker
-                  value={dayjs(date)}
-                  onChange={(newValue) => setDate(newValue?.format('YYYY-MM-DD') || date)}
-                  format="DD/MM/YYYY"
-                  slots={{ openPickerIcon: CalendarMonthIcon }}
-                  slotProps={{ textField: { size: 'small', sx: { width: 200, bgcolor: 'background.paper', borderRadius: 1 } } }}
-                />
-                <IconButton size="small" onClick={() => setDate(addDays(date, 1))} aria-label="Next day">
-                  <ChevronRightIcon />
-                </IconButton>
-                <IconButton size="small" onClick={() => setDate(todayISO())} aria-label="Today">
-                  <TodayIcon fontSize="small" />
-                </IconButton>
-                <Button
-                  variant="outlined"
-                  size="small"
-                  startIcon={<PlayArrowIcon />}
-                  onClick={() => void runPushAction('dry-run')}
-                  disabled={pushState.mode === 'running' || pushableBlocks.length === 0}
-                >
-                  {dryRunRunning ? 'Running dry run…' : 'Dry run'}
-                </Button>
-                <Button
-                  variant="contained"
-                  size="small"
-                  startIcon={pushRunning ? <SyncIcon /> : <UploadIcon />}
-                  onClick={handlePushClick}
-                  disabled={pushState.mode === 'running' || pushBlocked}
-                >
-                  {pushRunning ? 'Pushing…' : 'Push'}
-                </Button>
-              </Stack>
-            </Box>
+            <DateToolbar
+              date={date}
+              onChangeDate={setDate}
+              actionRunning={pushState.mode === 'running'}
+              dryRunRunning={dryRunRunning}
+              pushRunning={pushRunning}
+              pushBlocked={pushBlocked}
+              pushableCount={pushableBlocks.length}
+              onDryRun={() => void runPushAction('dry-run')}
+              onPushClick={handlePushClick}
+            />
 
-            <Box sx={{ borderBottom: '1px solid', borderColor: 'divider' }}>
-              <Stack
-                direction="row"
-                spacing={1}
-                onClick={() => setSyncOpen((open) => !open)}
-                sx={{ px: { xs: 2, md: 3 }, py: 1, cursor: 'pointer', alignItems: 'center', justifyContent: 'space-between' }}
-              >
-                <Box sx={{ minWidth: 0 }}>
-                  <Typography variant="subtitle2">Tempo sync</Typography>
-                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                    Closed notebook blocks with valid tickets are the push candidates. Editing synced timing, ticket, or summary marks that block unsynced again.
-                  </Typography>
-                </Box>
-                <IconButton size="small" aria-label={syncOpen ? 'Collapse Tempo sync' : 'Expand Tempo sync'}>
-                  <ExpandMoreIcon
-                    fontSize="small"
-                    sx={{ transform: syncOpen ? 'rotate(180deg)' : 'none', transition: 'transform 150ms' }}
-                  />
-                </IconButton>
-              </Stack>
-              <Collapse in={syncOpen} timeout="auto" unmountOnExit>
-                <Box sx={{ px: { xs: 2, md: 3 }, pb: 2 }}>
-                  <Stack spacing={1.25}>
-                {errorCount > 0 && (
-                  <Alert severity="error">Resolve validation errors before pushing notebook blocks to Tempo.</Alert>
-                )}
-
-                {pushableBlocks.length === 0 && (
-                  <Alert severity="info">No closed notebook blocks are ready for Tempo yet.</Alert>
-                )}
-
-                {pushState.mode === 'done' && 'dryRun' in pushState.summary && (
-                  <Stack spacing={1}>
-                    <Alert severity={pushState.summary.blocked.length > 0 ? 'error' : 'info'}>
-                      {pushState.summary.blocked.length > 0
-                        ? `Dry run blocked by ${pushState.summary.blocked.length} validation error${pushState.summary.blocked.length === 1 ? '' : 's'}.`
-                        : `Dry run prepared ${pushState.summary.planned.length} worklog request${pushState.summary.planned.length === 1 ? '' : 's'} and would skip ${pushState.summary.skipped} already-synced block${pushState.summary.skipped === 1 ? '' : 's'}.`}
-                    </Alert>
-                    {pushState.summary.blocked.length > 0 && (
-                      <Stack spacing={0.5}>
-                        {pushState.summary.blocked.map((message, index) => (
-                          <Typography key={`dry-blocked-${index}`} variant="caption" color="error.main">
-                            {message}
-                          </Typography>
-                        ))}
-                      </Stack>
-                    )}
-                    {pushState.summary.planned.length > 0 && (
-                      <Stack spacing={1}>
-                        {pushState.summary.planned.map((planned) => {
-                          const matchingBlock = day?.blocks.find((block) => block.id === planned.blockId)
-                          return (
-                            <Paper key={planned.blockId} variant="outlined" sx={{ p: 1.25, bgcolor: 'background.default' }}>
-                              <Stack spacing={0.5}>
-                                <Typography variant="subtitle2">
-                                  {planned.ticketId} · {matchingBlock ? notebookBlockSummary(matchingBlock) : 'Notebook block'}
-                                </Typography>
-                                <Typography variant="caption" color="text.secondary" sx={{ fontFamily: MONO_FONT }}>
-                                  POST {planned.request.url}
-                                </Typography>
-                                <Typography variant="caption" sx={{ fontFamily: MONO_FONT, wordBreak: 'break-all' }}>
-                                  {JSON.stringify(planned.request.body)}
-                                </Typography>
-                              </Stack>
-                            </Paper>
-                          )
-                        })}
-                      </Stack>
-                    )}
-                  </Stack>
-                )}
-
-                {pushState.mode === 'done' && !('dryRun' in pushState.summary) && (
-                  <Stack spacing={1}>
-                    <Alert severity={pushState.summary.failed > 0 || pushState.summary.blocked.length > 0 ? 'warning' : 'success'}>
-                      {pushState.summary.blocked.length > 0
-                        ? `Push blocked by ${pushState.summary.blocked.length} validation error${pushState.summary.blocked.length === 1 ? '' : 's'}.`
-                        : `Pushed ${pushState.summary.synced} block${pushState.summary.synced === 1 ? '' : 's'}, failed ${pushState.summary.failed}, skipped ${pushState.summary.skipped} already-synced block${pushState.summary.skipped === 1 ? '' : 's'}.`}
-                    </Alert>
-                    {pushState.summary.blocked.length > 0 && (
-                      <Stack spacing={0.5}>
-                        {pushState.summary.blocked.map((message, index) => (
-                          <Typography key={`push-blocked-${index}`} variant="caption" color="error.main">
-                            {message}
-                          </Typography>
-                        ))}
-                      </Stack>
-                    )}
-                    {pushState.summary.results.length > 0 && (
-                      <Stack spacing={0.75}>
-                        {pushState.summary.results.map((result) => (
-                          <Typography key={result.blockId} variant="caption" sx={{ color: result.ok ? 'success.main' : 'warning.main' }}>
-                            {result.ticketId}: {result.ok ? `synced as worklog ${result.tempoWorklogId}` : result.error ?? 'failed'}
-                          </Typography>
-                        ))}
-                      </Stack>
-                    )}
-                  </Stack>
-                )}
-                  </Stack>
-                </Box>
-              </Collapse>
-            </Box>
+            <TempoSyncSection
+              open={syncOpen}
+              onToggle={() => setSyncOpen((open) => !open)}
+              errorCount={errorCount}
+              pushableCount={pushableBlocks.length}
+              pushState={pushState}
+              blocks={day?.blocks}
+            />
 
             {error && (
               <Box sx={{ px: { xs: 2, md: 3 }, pt: 2 }}>
@@ -1266,46 +1071,17 @@ export function App() {
               </Stack>
             )}
 
-            <Stack
-              direction="row"
-              useFlexGap
-              spacing={2}
-              sx={{ px: { xs: 2, md: 3 }, py: 1.5, mt: 'auto', bgcolor: theme.ledger.barBg, color: theme.ledger.barText, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}
-            >
-              <Stack direction="row" useFlexGap spacing={2.5} sx={{ flexWrap: 'wrap' }}>
-                {[
-                  `blocks · ${trackedCount}`,
-                  `tickets · ${ticketCount}`,
-                  `ready · ${unsyncedBlocks}`,
-                  `synced · ${syncedBlocks}`,
-                  `tracked · ${formatHours(Math.round(totalMinutes))}`,
-                  `errors · ${errorCount}`,
-                  `warnings · ${warningCount}`,
-                ].map((stat) => (
-                  <Typography key={stat} variant="caption" sx={{ fontFamily: MONO_FONT }}>
-                    {stat}
-                  </Typography>
-                ))}
-                {settings.ai.enabled && (
-                  <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
-                    <Box
-                      sx={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: '50%',
-                        bgcolor: aiRunning ? 'secondary.main' : theme.ledger.headerCaption,
-                      }}
-                    />
-                    <Typography variant="caption" sx={{ fontFamily: MONO_FONT }}>
-                      {`ai · ${aiRunning ? 'loaded' : 'unloaded'}`}
-                    </Typography>
-                  </Stack>
-                )}
-              </Stack>
-              <Typography variant="caption" sx={{ fontFamily: MONO_FONT, opacity: 0.75 }}>
-                tap block · pins + merge
-              </Typography>
-            </Stack>
+            <StatusBar
+              trackedCount={trackedCount}
+              ticketCount={ticketCount}
+              unsyncedCount={unsyncedBlocks}
+              syncedCount={syncedBlocks}
+              totalMinutes={totalMinutes}
+              errorCount={errorCount}
+              warningCount={warningCount}
+              aiEnabled={settings.ai.enabled}
+              aiRunning={aiRunning}
+            />
           </Box>
 
           <SummaryTruncationDialog
