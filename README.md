@@ -21,15 +21,25 @@ Currently only packaged for mac silicon.
 
 Download latest .dmg from releases page > open and drag installer to Applications folder.
 
-While this is still in development you will need to remove quarantine flag via terminal to run it (only need to do this once)
+While this is still in development you will need to remove quarantine flag via terminal to run it if you are manually installing:
 
 `xattr -cr "/Applications/Tempo Timesheet Tool.app"` 
 
 You can then open the app normally.
 
+This should not be required if using the built in updater function.
+
 To setup the Jira and Tempo sync, open settings and follow the instructions for configuring the API keys.
 
 You can also configure a local AI model for summarising long ticket notes into shorter descriptions for the tempo entry.
+
+### Updating
+
+On startup the app will check for updates, referencing the github releases, and prompt to install new ones.
+
+You can manually check for updates on the settings page.
+
+Or you can manually donwload a specific version from the releases page, but you will need to re-run the quaratine removal command as shown above.
 
 ## Dev setup
 
