@@ -16,8 +16,8 @@
         "title": "Tempo Timesheet Tool",
         "width": 1400,
         "height": 960,
-        "minWidth": 1100,
-        "minHeight": 760,
+        "minWidth": 520,
+        "minHeight": 420,
         "resizable": true
       }
     ],

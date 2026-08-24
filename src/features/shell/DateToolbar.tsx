@@ -56,7 +56,7 @@ export function DateToolbar({
           {prettyDate(date)}
         </Typography>
         <Typography variant="body2" color="text.secondary">
-          Notes are the source of truth. Time is inferred while you work, and the timeline mirrors the same blocks.
+          Time is inferred while you work, the timeline mirrors the same blocks.
         </Typography>
       </Box>
       <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>

@@ -16,6 +16,19 @@ export function addDays(iso: string, n: number): string {
   return toISO(dt)
 }
 
+/** ISO date of the Monday that starts the week containing `iso`. */
+export function startOfWeek(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number)
+  const weekday = new Date(y, m - 1, d).getDay() // 0 = Sunday
+  return addDays(iso, -((weekday + 6) % 7))
+}
+
+/** The seven ISO dates (Monday..Sunday) of the week containing `iso`. */
+export function weekDates(iso: string): string[] {
+  const monday = startOfWeek(iso)
+  return Array.from({ length: 7 }, (_, index) => addDays(monday, index))
+}
+
 /** "Fri 9 May 2025" for the header. */
 export function prettyDate(iso: string): string {
   const [y, m, d] = iso.split('-').map(Number)
