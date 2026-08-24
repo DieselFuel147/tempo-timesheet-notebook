@@ -63,12 +63,36 @@ jobs:
           LABELS="$(gh pr view "${PR_NUMBER}" --json labels --jq '.labels[].name' || true)"
           if grep -qx 'major' <<<"${LABELS}"; then
             LEVEL=major
+            SOURCE='major label'
           elif grep -qx 'minor' <<<"${LABELS}"; then
             LEVEL=minor
-          else
+            SOURCE='minor label'
+          elif grep -qx 'patch' <<<"${LABELS}"; then
             LEVEL=patch
+            SOURCE='patch label'
+          else
+            # No release label set: fall back to the same title inference the
+            # "PR release type" bot uses for its preview comment, so what the
+            # comment promised is what actually ships.
+            PR_TITLE="$(gh pr view "${PR_NUMBER}" --json title --jq '.title')"
+            TITLE_LOWER="$(printf '%s' "${PR_TITLE}" | tr '[:upper:]' '[:lower:]')"
+            case "${TITLE_LOWER}" in
+              *"!"*|*break*)
+                LEVEL=major
+                INFERENCE='breaking-change marker in the title'
+                ;;
+              feat*|feature*|add*|allow*|support*|introduce*)
+                LEVEL=minor
+                INFERENCE='title looks like a feature'
+                ;;
+              *)
+                LEVEL=patch
+                INFERENCE='default for fixes, refactors and chores'
+                ;;
+            esac
+            SOURCE="title inference (${INFERENCE})"
           fi
-          echo "PR #${PR_NUMBER}: bumping ${LEVEL}"
+          echo "PR #${PR_NUMBER}: bumping ${LEVEL} (${SOURCE})"
 
           # Source of truth is package.json; any prerelease suffix is dropped.
           CURRENT="$(node -p 'require("./package.json").version')"
@@ -172,7 +196,9 @@ jobs:
         run: |
           set -euo pipefail
           SIG="$(cat src-tauri/target/release/bundle/macos/*.app.tar.gz.sig)"
-          ASSET_NAME="$(basename src-tauri/target/release/bundle/macos/*.app.tar.gz)"
+          # GitHub normalizes asset names on upload by replacing spaces with
+          # dots; the manifest must reference the stored name or downloads 404.
+          ASSET_NAME="$(basename src-tauri/target/release/bundle/macos/*.app.tar.gz | tr ' ' '.')"
           NOTES="$(gh release view "v${RELEASE_VERSION}" --json body --jq .body)"
           case "$(uname -m)" in
             arm64) PLATFORM="darwin-aarch64" ;;
@@ -201,3 +227,12 @@ jobs:
             fs.writeFileSync("latest.json", JSON.stringify(manifest, null, 2) + "\n");
           '
           gh release upload "v${RELEASE_VERSION}" latest.json --clobber
+
+          # Guard against a silently broken updater: the manifest URL must
+          # match an asset actually stored on the release.
+          STORED_ASSETS="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/v${RELEASE_VERSION}" --jq '.assets[].name')"
+          if ! grep -Fxq "${ASSET_NAME}" <<<"${STORED_ASSETS}"; then
+            echo "::error::latest.json references '${ASSET_NAME}' but the release assets are:"$'\n'"${STORED_ASSETS}"
+            exit 1
+          fi
+          echo "Updater manifest verified: ${ASSET_NAME}"
