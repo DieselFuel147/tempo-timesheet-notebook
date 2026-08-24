@@ -4,6 +4,7 @@ import { truncatedAutoSummaries } from '@shared/notebook'
 import { normalizeNotebookDay } from '@app/features/notebook/blockModel'
 import { api } from '@app/api'
 import type { PushState } from './syncStatus'
+import type { ActivityOutcome } from '@app/features/activity/activityLog'
 
 interface SummaryGate {
   entries: ReturnType<typeof truncatedAutoSummaries>
@@ -19,7 +20,8 @@ interface Options {
   /** Forces a Tempo worklog reload for the given date (post-push overlay refresh). */
   reloadTempoWorklogs: (date: string) => void
   onSummaryChange: (id: string, value: string) => void
-  onError: (message: string | null) => void
+  /** Receives every finished dry-run/push outcome (success or failure). */
+  onOutcome: (outcome: ActivityOutcome) => void
 }
 
 // Dry-run/push state machine plus the truncation gate: intercepts the push
@@ -33,7 +35,7 @@ export function usePushFlow({
   setDay,
   reloadTempoWorklogs,
   onSummaryChange,
-  onError,
+  onOutcome,
 }: Options) {
   const [pushState, setPushState] = useState<PushState>({ mode: 'idle' })
   // Blocks the push until every auto-truncated summary is confirmed in the
@@ -48,21 +50,25 @@ export function usePushFlow({
 
   const runPushAction = useCallback(async (action: 'dry-run' | 'push') => {
     setPushState({ mode: 'running', action })
-    onError(null)
     try {
-      const summary = action === 'dry-run' ? await api.dryRunDay(date) : await api.pushDay(date)
-      if (action === 'push') {
-        const refreshed = await api.getDay(date)
-        setDay(normalizeNotebookDay(refreshed))
-        // Newly-synced blocks now exist in Tempo — refresh the overlay.
-        reloadTempoWorklogs(date)
+      if (action === 'dry-run') {
+        const summary = await api.dryRunDay(date)
+        setPushState({ mode: 'done', action, summary })
+        onOutcome({ kind: 'dry-run-ok', targetDate: date, summary })
+        return
       }
+      const summary = await api.pushDay(date)
+      const refreshed = await api.getDay(date)
+      setDay(normalizeNotebookDay(refreshed))
+      // Newly-synced blocks now exist in Tempo — refresh the overlay.
+      reloadTempoWorklogs(date)
       setPushState({ mode: 'done', action, summary })
+      onOutcome({ kind: 'push-ok', targetDate: date, summary })
     } catch (cause) {
-      onError(`${action === 'dry-run' ? 'Dry run' : 'Push'} failed: ${(cause as Error).message}`)
       setPushState({ mode: 'idle' })
+      onOutcome({ kind: 'tempo-failed', action, targetDate: date, message: (cause as Error).message })
     }
-  }, [date, onError, reloadTempoWorklogs, setDay])
+  }, [date, onOutcome, reloadTempoWorklogs, setDay])
 
   const handlePushClick = useCallback(() => {
     const entries = truncatedAutoSummaries(dayRef.current?.blocks ?? [], maxSummaryChars)

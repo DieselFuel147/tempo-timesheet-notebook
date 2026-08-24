@@ -10,7 +10,9 @@ import { blockDuration, getTimedBlocks, persistedNotebookDay } from '@app/featur
 import { NotebookEditorPanel } from '@app/features/notebook/NotebookEditorPanel'
 import { TimelinePanel } from '@app/features/timeline/TimelinePanel'
 import { SummaryTruncationDialog } from '@app/features/sync/SummaryTruncationDialog'
-import { TempoSyncSection } from '@app/features/sync/TempoSyncSection'
+import { ActivityLogPage } from '@app/features/activity/ActivityLogPage'
+import { ActivityToast } from '@app/features/activity/ActivityToast'
+import { useActivityLog, type ActivityEntry, type ActivityOutcome, type NotebookErrorSource } from '@app/features/activity/activityLog'
 import { useTempoWorklogs } from '@app/features/sync/useTempoWorklogs'
 import { usePushFlow } from '@app/features/sync/usePushFlow'
 import { AppHeader } from '@app/features/shell/AppHeader'
@@ -29,7 +31,6 @@ import { readAppearance, writeAppearance, type Appearance } from './appearance'
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider'
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
 import {
-  Alert,
   Box,
   CssBaseline,
   FormControlLabel,
@@ -48,6 +49,8 @@ import { useAppTheme } from './useAppTheme'
 const NO_ENTRIES: TruncatedSummaryEntry[] = []
 const NO_IDS: ReadonlySet<string> = new Set()
 
+type View = 'main' | 'settings' | 'log'
+
 export function App() {
   const [appearance, setAppearance] = useState<Appearance>(() => readAppearance())
   const theme = useAppTheme(appearance)
@@ -58,10 +61,8 @@ export function App() {
   const [profile, setProfile] = useState<JiraProfile | null>(null)
   const [date, setDate] = useState(todayISO())
   const [settings, setSettings] = useState<AppSettings>(defaultSettings)
-  const [showSettings, setShowSettings] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [view, setView] = useState<View>('main')
   const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [syncOpen, setSyncOpen] = useState(false)
   const [showTempoWorklogs, setShowTempoWorklogs] = useState(true)
   const [filterMenuAnchor, setFilterMenuAnchor] = useState<HTMLElement | null>(null)
 
@@ -79,6 +80,19 @@ export function App() {
       : updater.phase.kind === 'ready'
         ? updater.phase.version
         : null
+
+  const { entries: activityEntries, record: recordActivity } = useActivityLog()
+  const [toastEntry, setToastEntry] = useState<ActivityEntry | null>(null)
+  const showToast = useCallback((entry: ActivityEntry) => setToastEntry(entry), [])
+  const handleSyncOutcome = useCallback(
+    (outcome: ActivityOutcome) => showToast(recordActivity(outcome)),
+    [recordActivity, showToast],
+  )
+  const handleNotebookError = useCallback(
+    (source: NotebookErrorSource, message: string) =>
+      showToast(recordActivity({ kind: 'notebook-error', source, message })),
+    [recordActivity, showToast],
+  )
 
   const {
     day,
@@ -105,7 +119,7 @@ export function App() {
     getCurrentMinute,
     resetClockAnchor,
     setExpandedId,
-    onError: setError,
+    onError: handleNotebookError,
   })
 
   const tempoConfigured = settings.connections.tempo.apiTokenSaved
@@ -159,14 +173,8 @@ export function App() {
     setDay,
     reloadTempoWorklogs: (targetDate) => void reloadTempoWorklogs(targetDate, { force: true }),
     onSummaryChange: handleSummaryChange,
-    onError: setError,
+    onOutcome: handleSyncOutcome,
   })
-
-  // Reveal the Tempo sync section automatically once a dry-run or push finishes
-  // so the request preview / results are visible without a manual toggle.
-  useEffect(() => {
-    if (pushState.mode === 'done') setSyncOpen(true)
-  }, [pushState])
 
   const nowMinute = day ? getCurrentMinute(day.date) : getCurrentMinute(date)
   const validationIssues = useMemo(
@@ -216,7 +224,7 @@ export function App() {
   const dryRunRunning = pushState.mode === 'running' && pushState.action === 'dry-run'
   const pushRunning = pushState.mode === 'running' && pushState.action === 'push'
 
-  if (showSettings) {
+  if (view === 'settings') {
     return (
       <ThemeProvider theme={theme}>
         <CssBaseline />
@@ -235,11 +243,34 @@ export function App() {
             <SettingsPage
               settings={settings}
               onSaved={setSettings}
-              onClose={() => setShowSettings(false)}
+              onClose={() => setView('main')}
               appearance={appearance}
               onAppearanceChange={handleAppearanceChange}
               updater={updater}
             />
+          </Box>
+        </Box>
+      </ThemeProvider>
+    )
+  }
+
+  if (view === 'log') {
+    return (
+      <ThemeProvider theme={theme}>
+        <CssBaseline />
+        <Box
+          sx={{
+            height: '100vh',
+            display: 'flex',
+            flexDirection: 'column',
+            bgcolor: 'background.default',
+            overflowY: 'auto',
+            py: 4,
+            px: 2,
+          }}
+        >
+          <Box sx={{ maxWidth: 900, mx: 'auto', width: '100%' }}>
+            <ActivityLogPage entries={activityEntries} onClose={() => setView('main')} />
           </Box>
         </Box>
       </ThemeProvider>
@@ -272,7 +303,8 @@ export function App() {
               clockLabel={clockLabel}
               isLiveTyping={isLiveTyping}
               updateVersion={headerUpdateVersion}
-              onOpenSettings={() => setShowSettings(true)}
+              onOpenLog={() => setView('log')}
+              onOpenSettings={() => setView('settings')}
             />
 
             <DateToolbar
@@ -286,21 +318,6 @@ export function App() {
               onDryRun={() => void runPushAction('dry-run')}
               onPushClick={handlePushClick}
             />
-
-            <TempoSyncSection
-              open={syncOpen}
-              onToggle={() => setSyncOpen((open) => !open)}
-              errorCount={errorCount}
-              pushableCount={pushableBlocks.length}
-              pushState={pushState}
-              blocks={day?.blocks}
-            />
-
-            {error && (
-              <Box sx={{ px: { xs: 2, md: 3 }, pt: 2 }}>
-                <Alert severity="error">{error}</Alert>
-              </Box>
-            )}
 
             {loading || !day ? (
               <Box sx={{ p: 3 }}>
@@ -469,6 +486,12 @@ export function App() {
             onEditOverride={handleGateEditOverride}
             onCancel={handleGateCancel}
             onPush={handleGatePush}
+          />
+
+          <ActivityToast
+            entry={toastEntry}
+            onClose={() => setToastEntry(null)}
+            onOpenLog={() => setView('log')}
           />
         </Box>
       </LocalizationProvider>
