@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import FilterAltIcon from '@mui/icons-material/FilterAlt'
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 import ViewTimelineIcon from '@mui/icons-material/ViewTimeline'
@@ -31,6 +31,12 @@ import { useAppUpdater } from '@app/features/updater/useAppUpdater'
 import { useNotebookDay } from '@app/features/notebook/useNotebookDay'
 import { useBlockDrag } from '@app/features/timeline/useBlockDrag'
 import { useTimelineSplit } from '@app/features/timeline/useTimelineSplit'
+import {
+  LINK_PULSE_MS,
+  scrollToNotebookBlock,
+  scrollToTimelineBlock,
+  type LinkSide,
+} from '@app/features/linking/blockLink'
 import { resolveClickedEntrySpan } from '@app/features/timeline/dropTarget'
 import { startOfWeek, todayISO, weekDates } from './dateutil'
 import { SettingsPage } from '@app/features/settings/SettingsPage'
@@ -79,6 +85,24 @@ export function App() {
   const [settings, setSettings] = useState<AppSettings>(defaultSettings)
   const [view, setView] = useState<View>('main')
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  // Transient attention pulse on whichever panel a cross-panel jump landed in;
+  // the highlight flashes and fades, nothing persists.
+  const [linkPulse, setLinkPulse] = useState<{ id: string; side: LinkSide } | null>(null)
+  const linkPulseTimerRef = useRef<number | null>(null)
+  useEffect(
+    () => () => {
+      if (linkPulseTimerRef.current !== null) window.clearTimeout(linkPulseTimerRef.current)
+    },
+    [],
+  )
+  const startLinkPulse = useCallback((id: string, side: LinkSide) => {
+    if (linkPulseTimerRef.current !== null) window.clearTimeout(linkPulseTimerRef.current)
+    setLinkPulse({ id, side })
+    linkPulseTimerRef.current = window.setTimeout(() => {
+      setLinkPulse(null)
+      linkPulseTimerRef.current = null
+    }, LINK_PULSE_MS)
+  }, [])
   const [stackedPanel, setStackedPanel] = useState<StackedPanel>('notebook')
   // Side-by-side layout only: StackedPanels always keeps both panels reachable.
   const [timelineCollapsed, setTimelineCollapsed] = useState(() => readTimelineCollapsed())
@@ -174,6 +198,27 @@ export function App() {
       getCurrentMinute,
       setExpandedId,
     })
+
+  // Timeline → notebook: keep the existing drag-guarded expand toggle, then
+  // flash the block's notebook card and reveal it.
+  const handleTimelineSelect = useCallback(
+    (id: string) => {
+      handleTimelineBlockClick(id)
+      startLinkPulse(id, 'notebook')
+      scrollToNotebookBlock(id)
+    },
+    [handleTimelineBlockClick, startLinkPulse],
+  )
+
+  // Notebook → timeline: any click/focus inside an entry card flashes its
+  // block. A hidden/unmounted target panel makes the scroll a no-op.
+  const handleNotebookInteract = useCallback(
+    (id: string) => {
+      startLinkPulse(id, 'timeline')
+      scrollToTimelineBlock(id)
+    },
+    [startLinkPulse],
+  )
 
   // Double-click on a blank timeline spot: size the new entry to the clicked
   // gap (capped fills, anchored edges) and create it from the trailing blank
@@ -351,6 +396,8 @@ export function App() {
         adminTicket={settings.validation.adminTicket}
         issuesByBlock={issuesByBlock}
         maxSummaryChars={settings.validation.maxSummaryChars}
+        pulseId={linkPulse?.side === 'notebook' ? linkPulse.id : null}
+        onInteract={handleNotebookInteract}
         onTextChange={handleTextChange}
         onTicketChange={handleTicketChange}
         onTimeChange={handleTimeChange}
@@ -422,11 +469,12 @@ export function App() {
         blocks={(day?.blocks ?? []).filter((block) => isPersistedNotebookBlock(block))}
         nowMinute={nowMinute}
         expandedId={expandedId}
+        pulseId={linkPulse?.side === 'timeline' ? linkPulse.id : null}
         tempoWorklogs={visibleTempoWorklogs}
         localWorklogIds={localWorklogIds}
         blockDragPreview={blockDragPreview}
         onCreateEntryAt={handleCreateEntryAtMinute}
-        onToggleExpand={handleTimelineBlockClick}
+        onToggleExpand={handleTimelineSelect}
         onAbsorbGap={handleAbsorbGap}
         onMerge={handleMerge}
         onPinPointerDown={handlePinPointerDown}
