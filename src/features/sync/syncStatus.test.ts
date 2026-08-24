@@ -29,6 +29,11 @@ describe('isPushableBlock', () => {
   it('accepts a summary override in place of notes', () => {
     expect(isPushableBlock(block({ text: '', summaryOverride: 'Manual summary' }))).toBe(true)
   })
+
+  it('never considers lunch entries pushable', () => {
+    expect(isPushableBlock(block({ ticketId: 'LUNCH' }))).toBe(false)
+    expect(isPushableBlock(block({ ticketId: 'lunch' }))).toBe(false)
+  })
 })
 
 describe('blockSyncLabel', () => {

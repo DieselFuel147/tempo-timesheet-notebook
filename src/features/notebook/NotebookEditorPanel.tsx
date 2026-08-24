@@ -1,7 +1,8 @@
-import { memo, useCallback, useEffect, useMemo, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useState, type SyntheticEvent } from 'react'
 import AssistantIcon from '@mui/icons-material/Assistant'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined'
 import {
+  alpha,
   Box,
   Button,
   Chip,
@@ -14,11 +15,12 @@ import {
   useTheme,
 } from '@mui/material'
 import type { NotebookBlock } from '@shared/types'
-import { autoSummary, isPersistedNotebookBlock } from '@shared/notebook'
+import { autoSummary, isLunchBlock, isPersistedNotebookBlock } from '@shared/notebook'
 import type { ValidationIssue } from '@shared/validation'
 import { formatHours, minutesToHHmm, parseDuration } from '@app/dateutil'
 import { assignBlockColors } from '@app/features/notebook/blockColors'
 import { blockSyncLabel } from '@app/features/sync/syncStatus'
+import { LINK_PULSE_MS } from '@app/features/linking/blockLink'
 import { TicketField } from '@app/features/notebook/TicketField'
 import { MONO_FONT } from '@app/theme'
 
@@ -123,6 +125,10 @@ export interface NotebookEditorPanelProps {
   adminTicket: string
   issuesByBlock: Map<string, ValidationIssue[]>
   maxSummaryChars: number
+  /** Entry playing the attention pulse after a cross-panel jump. */
+  pulseId: string | null
+  /** Any click/focus inside a block card; App links it to the timeline. */
+  onInteract: (id: string) => void
   onTextChange: (id: string, value: string, eventTarget?: HTMLTextAreaElement | null) => void
   onTicketChange: (id: string, ticketId: string) => void
   onTimeChange: (id: string, edge: 'start' | 'end', value: string) => void
@@ -141,6 +147,8 @@ export const NotebookEditorPanel = memo(function NotebookEditorPanel({
   adminTicket,
   issuesByBlock,
   maxSummaryChars,
+  pulseId,
+  onInteract,
   onTextChange,
   onTicketChange,
   onTimeChange,
@@ -157,8 +165,20 @@ export const NotebookEditorPanel = memo(function NotebookEditorPanel({
   const activeStartedId = blocks.findLast((block) => block.startMinute !== null && !block.closed)?.id ?? null
   const blockColorMap = useMemo(() => assignBlockColors(blocks, theme.blockColors), [blocks, theme.blockColors])
 
+  // Any click or keyboard focus inside a block card reports that card as the
+  // active entry so App can select it in the timeline. Capture phase so inputs
+  // and buttons can't stop the event before it reaches us.
+  const handleInteract = useCallback(
+    (event: SyntheticEvent) => {
+      const card = (event.target as HTMLElement).closest('[data-notebook-block-id]')
+      const id = card?.getAttribute('data-notebook-block-id')
+      if (id) onInteract(id)
+    },
+    [onInteract],
+  )
+
   return (
-    <Box>
+    <Box onClickCapture={handleInteract} onFocusCapture={handleInteract}>
       {blocks.length === 1 && !isPersistedNotebookBlock(blocks[0]) && (
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
           Start typing below. The first keystroke opens the first notebook block.
@@ -173,18 +193,30 @@ export const NotebookEditorPanel = memo(function NotebookEditorPanel({
           const isReopenable = block.id === activeReopenableId
           const isLive = block.id === activeStartedId
           const syncChip = blockSyncLabel(block)
-          const accent = blockColorMap.get(block.id) ?? null
+          // LUNCH keeps the fixed amber so it reads as non-work in both panels.
+          const accent = isLunchBlock(block) ? theme.ledger.lunchBlock : blockColorMap.get(block.id) ?? null
+          const isPulsing = pulseId === block.id
 
           return (
             <Paper
               key={block.id}
               variant="outlined"
+              data-notebook-block-id={block.id}
               sx={{
                 p: 1.25,
                 borderColor: isReopenable ? 'warning.main' : 'divider',
                 borderStyle: isReopenable ? 'dashed' : 'solid',
                 borderLeft: accent && !isReopenable ? `3px solid ${accent}` : undefined,
                 backgroundColor: theme.ledger.entryCardBg,
+                // Attention pulse after a cross-panel jump; fades back to the
+                // card's plain look when it finishes (nothing persists).
+                ...(isPulsing && {
+                  animation: `nb-link-pulse ${LINK_PULSE_MS}ms ease-out`,
+                  '@keyframes nb-link-pulse': {
+                    '0%': { boxShadow: `0 0 0 8px ${alpha(theme.palette.primary.main, 0.55)}` },
+                    '100%': { boxShadow: '0 0 0 0 transparent' },
+                  },
+                }),
               }}
             >
               <Stack spacing={1}>

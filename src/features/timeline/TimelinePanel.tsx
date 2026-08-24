@@ -1,12 +1,13 @@
 import { useMemo, useRef, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import ExpandIcon from '@mui/icons-material/Expand'
 import LinkIcon from '@mui/icons-material/Link'
-import { Box, Chip, IconButton, Paper, Stack, Tooltip, Typography, useTheme } from '@mui/material'
+import { alpha, Box, Chip, IconButton, Paper, Stack, Tooltip, Typography, useTheme } from '@mui/material'
 import type { NotebookBlock, TempoWorklog } from '@shared/types'
-import { notebookBlockSummary } from '@shared/notebook'
+import { isLunchTicketId, notebookBlockSummary } from '@shared/notebook'
 import { formatHours } from '@app/dateutil'
 import { DAY_MINUTES, getTimedBlocks } from '@app/features/notebook/blockModel'
 import { toTempoWorklogViews } from '@app/features/sync/tempoViews'
+import { LINK_PULSE_MS } from '@app/features/linking/blockLink'
 import { MIN_BLOCK_PIXEL_FLOOR, PX_PER_MINUTE, RULER_GUTTER } from './constants'
 import type { BlockDragPreview } from './useBlockDrag'
 import { MONO_FONT } from '@app/theme'
@@ -15,6 +16,8 @@ export interface TimelinePanelProps {
   blocks: NotebookBlock[]
   nowMinute: number
   expandedId: string | null
+  /** Block playing the attention pulse after a cross-panel jump. */
+  pulseId: string | null
   tempoWorklogs: TempoWorklog[]
   localWorklogIds: Set<number>
   /** Mid-drag visual offset of a block body; overlaps are preview-only. */
@@ -46,6 +49,7 @@ export function TimelinePanel({
   blocks,
   nowMinute,
   expandedId,
+  pulseId,
   tempoWorklogs,
   localWorklogIds,
   blockDragPreview,
@@ -80,12 +84,14 @@ export function TimelinePanel({
       const ticketId = block.ticketId.trim()
       if (!ticketId) continue
       if (!colors.has(ticketId)) {
-        colors.set(ticketId, palette[nextColor % palette.length])
-        nextColor += 1
+        // LUNCH keeps a fixed amber so it never reads as a work ticket; the
+        // rotating palette is reserved for real ones.
+        colors.set(ticketId, isLunchTicketId(ticketId) ? theme.ledger.lunchBlock : palette[nextColor % palette.length])
+        if (!isLunchTicketId(ticketId)) nextColor += 1
       }
     }
     return colors
-  }, [blocks, palette])
+  }, [blocks, palette, theme.ledger.lunchBlock])
 
   const timedBlocks = useMemo(() => getTimedBlocks(blocks, nowMinute), [blocks, nowMinute])
   const tempoViews = useMemo(
@@ -235,6 +241,7 @@ export function TimelinePanel({
         const ticketCount = ticketId ? ticketCounts.get(ticketId) ?? 0 : 0
         const summary = notebookBlockSummary(block)
         const expanded = expandedId === block.id
+        const isPulsing = pulseId === block.id
         // How many body2 lines fit under the time row without growing the block.
         const maxSummaryLines = Math.max(0, Math.floor((height - TIMELINE_BLOCK_CHROME_PX) / SUMMARY_LINE_HEIGHT_PX))
         const previous = timedBlocks[index - 1]
@@ -247,7 +254,7 @@ export function TimelinePanel({
         const canMergeNext = expanded && block.closed && !!next?.block.closed
 
         return (
-          <Box key={block.id} sx={{ position: 'absolute', top, left: 16, right: tempoViews.length > 0 ? TEMPO_LANE_WIDTH : 0 }}>
+          <Box key={block.id} data-timeline-block-id={block.id} sx={{ position: 'absolute', top, left: 16, right: tempoViews.length > 0 ? TEMPO_LANE_WIDTH : 0 }}>
             {gapAbove > 0 && (
               <Box
                 sx={{
@@ -269,7 +276,7 @@ export function TimelinePanel({
               onDoubleClick={(event) => event.stopPropagation()}
               onClick={(event) => {
                 event.stopPropagation()
-                if (block.closed) onToggleExpand(block.id)
+                onToggleExpand(block.id)
               }}
               sx={{
                 position: 'relative',
@@ -280,7 +287,7 @@ export function TimelinePanel({
                 bgcolor: color,
                 color: '#F4F5EF',
                 borderRadius: 1.5,
-                cursor: isDragging ? 'grabbing' : block.closed ? 'grab' : 'default',
+                cursor: isDragging ? 'grabbing' : 'grab',
                 touchAction: 'none',
                 boxShadow: expanded
                   ? `0 0 0 2px ${theme.palette.text.primary}`
@@ -292,6 +299,15 @@ export function TimelinePanel({
                   opacity: 0.65,
                   zIndex: 3,
                   boxShadow: '0 10px 24px rgba(0,0,0,0.35)',
+                }),
+                // Attention pulse after a cross-panel jump; settles back to
+                // the ring/shadow above when it finishes.
+                ...(isPulsing && {
+                  animation: `tl-link-pulse ${LINK_PULSE_MS}ms ease-out`,
+                  '@keyframes tl-link-pulse': {
+                    '0%': { boxShadow: `0 0 0 8px ${alpha(theme.palette.primary.main, 0.55)}` },
+                    '100%': { boxShadow: '0 0 0 0 transparent' },
+                  },
                 }),
               }}
             >

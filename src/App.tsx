@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import FilterAltIcon from '@mui/icons-material/FilterAlt'
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
+import ViewTimelineIcon from '@mui/icons-material/ViewTimeline'
 import type { JiraProfile } from '@shared/types'
 import { cloneSettings, defaultSettings, type Settings as AppSettings } from '@shared/settings'
-import { isPersistedNotebookBlock, type TruncatedSummaryEntry } from '@shared/notebook'
+import { isLunchBlock, isPersistedNotebookBlock, type TruncatedSummaryEntry } from '@shared/notebook'
 import { validateNotebookDay, type ValidationIssue } from '@shared/validation'
 import { api } from '@app/api'
 import { isPushableBlock } from '@app/features/sync/syncStatus'
@@ -20,6 +22,7 @@ import { AppHeader } from '@app/features/shell/AppHeader'
 import { DateToolbar } from '@app/features/shell/DateToolbar'
 import { StatusBar } from '@app/features/shell/StatusBar'
 import { StackedPanels, type StackedPanel } from '@app/features/shell/StackedPanels'
+import { readTimelineCollapsed, writeTimelineCollapsed } from '@app/features/shell/timelineCollapsed'
 import { useAppClock } from '@app/features/shell/useAppClock'
 import { useAiStatus } from '@app/features/shell/useAiStatus'
 import { useInactivityPrompt } from '@app/features/notifications/useInactivityPrompt'
@@ -28,6 +31,12 @@ import { useAppUpdater } from '@app/features/updater/useAppUpdater'
 import { useNotebookDay } from '@app/features/notebook/useNotebookDay'
 import { useBlockDrag } from '@app/features/timeline/useBlockDrag'
 import { useTimelineSplit } from '@app/features/timeline/useTimelineSplit'
+import {
+  LINK_PULSE_MS,
+  scrollToNotebookBlock,
+  scrollToTimelineBlock,
+  type LinkSide,
+} from '@app/features/linking/blockLink'
 import { resolveClickedEntrySpan } from '@app/features/timeline/dropTarget'
 import { startOfWeek, todayISO, weekDates } from './dateutil'
 import { SettingsPage } from '@app/features/settings/SettingsPage'
@@ -54,6 +63,11 @@ import { useAppTheme } from './useAppTheme'
 const NO_ENTRIES: TruncatedSummaryEntry[] = []
 const NO_IDS: ReadonlySet<string> = new Set()
 
+// Usage hints for the Timeline panel, surfaced via the header info icon so the
+// body stays compact. Kept verbatim from the former always-visible caption.
+const TIMELINE_HINT =
+  'Tap a closed block to reveal drag pins, gap absorb controls, and merge actions. Click a blank space to create a new entry. Click and drag a block to move it. Shared ticket IDs keep the same color and connect across the timeline. Skinny bars on the right are worklogs already in Tempo.'
+
 type View = 'main' | 'settings' | 'log'
 
 export function App() {
@@ -71,7 +85,31 @@ export function App() {
   const [settings, setSettings] = useState<AppSettings>(defaultSettings)
   const [view, setView] = useState<View>('main')
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  // Transient attention pulse on whichever panel a cross-panel jump landed in;
+  // the highlight flashes and fades, nothing persists.
+  const [linkPulse, setLinkPulse] = useState<{ id: string; side: LinkSide } | null>(null)
+  const linkPulseTimerRef = useRef<number | null>(null)
+  useEffect(
+    () => () => {
+      if (linkPulseTimerRef.current !== null) window.clearTimeout(linkPulseTimerRef.current)
+    },
+    [],
+  )
+  const startLinkPulse = useCallback((id: string, side: LinkSide) => {
+    if (linkPulseTimerRef.current !== null) window.clearTimeout(linkPulseTimerRef.current)
+    setLinkPulse({ id, side })
+    linkPulseTimerRef.current = window.setTimeout(() => {
+      setLinkPulse(null)
+      linkPulseTimerRef.current = null
+    }, LINK_PULSE_MS)
+  }, [])
   const [stackedPanel, setStackedPanel] = useState<StackedPanel>('notebook')
+  // Side-by-side layout only: StackedPanels always keeps both panels reachable.
+  const [timelineCollapsed, setTimelineCollapsed] = useState(() => readTimelineCollapsed())
+  const handleTimelineCollapsedChange = useCallback((collapsed: boolean) => {
+    setTimelineCollapsed(collapsed)
+    writeTimelineCollapsed(collapsed)
+  }, [])
   const [showTempoWorklogs, setShowTempoWorklogs] = useState(true)
   const [filterMenuAnchor, setFilterMenuAnchor] = useState<HTMLElement | null>(null)
 
@@ -161,6 +199,27 @@ export function App() {
       setExpandedId,
     })
 
+  // Timeline → notebook: keep the existing drag-guarded expand toggle, then
+  // flash the block's notebook card and reveal it.
+  const handleTimelineSelect = useCallback(
+    (id: string) => {
+      handleTimelineBlockClick(id)
+      startLinkPulse(id, 'notebook')
+      scrollToNotebookBlock(id)
+    },
+    [handleTimelineBlockClick, startLinkPulse],
+  )
+
+  // Notebook → timeline: any click/focus inside an entry card flashes its
+  // block. A hidden/unmounted target panel makes the scroll a no-op.
+  const handleNotebookInteract = useCallback(
+    (id: string) => {
+      startLinkPulse(id, 'timeline')
+      scrollToTimelineBlock(id)
+    },
+    [startLinkPulse],
+  )
+
   // Double-click on a blank timeline spot: size the new entry to the clicked
   // gap (capped fills, anchored edges) and create it from the trailing blank
   // notebook slot.
@@ -226,13 +285,21 @@ export function App() {
       }, 0),
     [weekMonday, weekDays, date, day, nowMinute, tick],
   )
-  const trackedCount = useMemo(() => (day?.blocks ?? []).filter(isPersistedNotebookBlock).length, [day])
+  // Lunch entries persist but stay invisible to every stat: not tracked time,
+  // not a ticket, never pushable (isPushableBlock already excludes them).
+  const trackedCount = useMemo(
+    () => (day?.blocks ?? []).filter((block) => isPersistedNotebookBlock(block) && !isLunchBlock(block)).length,
+    [day],
+  )
   const pushableBlocks = useMemo(() => (day?.blocks ?? []).filter(isPushableBlock), [day])
   const syncedBlocks = useMemo(() => pushableBlocks.filter((block) => block.tempoWorklogId).length, [pushableBlocks])
   const unsyncedBlocks = useMemo(() => pushableBlocks.filter((block) => !block.tempoWorklogId).length, [pushableBlocks])
   const ticketCount = useMemo(() => {
     const tickets = new Set(
-      (day?.blocks ?? []).map((block) => block.ticketId.trim()).filter((ticketId) => ticketId.length > 0),
+      (day?.blocks ?? [])
+        .filter((block) => !isLunchBlock(block))
+        .map((block) => block.ticketId.trim())
+        .filter((ticketId) => ticketId.length > 0),
     )
     return tickets.size
   }, [day])
@@ -314,14 +381,31 @@ export function App() {
         background: `repeating-linear-gradient(180deg, ${theme.ledger.ruledPaperBase}, ${theme.ledger.ruledPaperBase} 27px, ${theme.ledger.ruledPaperLine} 27px, ${theme.ledger.ruledPaperLine} 28px)`,
       }}
     >
-      <Typography variant="subtitle1" sx={{ mb: 1.25, fontWeight: 600 }}>
-        Notebook
-      </Typography>
+      <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between', mb: 1.25 }}>
+        <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+          Notebook
+        </Typography>
+        {/* Single persistent toggle for the side-by-side Timeline panel; stays
+            in the same spot whether the timeline is shown or hidden. */}
+        {!stackedMode && (
+          <Tooltip title={timelineCollapsed ? 'Show timeline' : 'Hide timeline'} arrow>
+            <IconButton
+              size="small"
+              aria-label={timelineCollapsed ? 'Show timeline' : 'Hide timeline'}
+              onClick={() => handleTimelineCollapsedChange(!timelineCollapsed)}
+            >
+              <ViewTimelineIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        )}
+      </Stack>
       <NotebookEditorPanel
         blocks={day?.blocks ?? []}
         adminTicket={settings.validation.adminTicket}
         issuesByBlock={issuesByBlock}
         maxSummaryChars={settings.validation.maxSummaryChars}
+        pulseId={linkPulse?.side === 'notebook' ? linkPulse.id : null}
+        onInteract={handleNotebookInteract}
         onTextChange={handleTextChange}
         onTicketChange={handleTicketChange}
         onTimeChange={handleTimeChange}
@@ -339,63 +423,66 @@ export function App() {
 
   const timelinePanel = (
     <Box sx={{ p: 2, minHeight: '100%', bgcolor: theme.ledger.rulerPanel }}>
-      <Stack spacing={1}>
-        <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
+      <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
+        <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
           <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
             Timeline
           </Typography>
-          <Tooltip title="Timeline filters" arrow>
-            <IconButton
-              size="small"
-              aria-label="Timeline filters"
-              onClick={(event) => setFilterMenuAnchor(event.currentTarget)}
-            >
-              <FilterAltIcon fontSize="small" />
+          <Tooltip title={TIMELINE_HINT} arrow>
+            <IconButton size="small" aria-label="About the timeline panel">
+              <InfoOutlinedIcon fontSize="small" />
             </IconButton>
           </Tooltip>
-          <Menu
-            anchorEl={filterMenuAnchor}
-            open={Boolean(filterMenuAnchor)}
-            onClose={() => setFilterMenuAnchor(null)}
-            anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-            transformOrigin={{ vertical: 'top', horizontal: 'right' }}
-          >
-            <Box sx={{ px: 2, py: 0.5 }}>
-              <FormControlLabel
-                control={
-                  <Switch
-                    size="small"
-                    checked={showTempoWorklogs}
-                    onChange={(event) => setShowTempoWorklogs(event.target.checked)}
-                  />
-                }
-                label="Show Tempo worklogs"
-              />
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', maxWidth: 220 }}>
-                {!tempoConfigured
-                  ? 'Connect Tempo in settings to load existing worklogs.'
-                  : tempoWorklogsLoading
-                    ? 'Loading worklogs from Tempo…'
-                    : tempoWorklogsError
-                      ? `Couldn't load Tempo worklogs: ${tempoWorklogsError}`
-                      : `${tempoWorklogs.length} confirmed worklog${tempoWorklogs.length === 1 ? '' : 's'} in Tempo for this day.`}
-              </Typography>
-            </Box>
-          </Menu>
         </Stack>
-        <Typography variant="body2" color="text.secondary">
-          Tap a closed block to reveal drag pins, gap absorb controls, and merge actions. Shared ticket IDs keep the same color and connect across the timeline. Hatched bars on the right are worklogs already in Tempo.
-        </Typography>
+        <Tooltip title="Timeline filters" arrow>
+          <IconButton
+            size="small"
+            aria-label="Timeline filters"
+            onClick={(event) => setFilterMenuAnchor(event.currentTarget)}
+          >
+            <FilterAltIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+        <Menu
+          anchorEl={filterMenuAnchor}
+          open={Boolean(filterMenuAnchor)}
+          onClose={() => setFilterMenuAnchor(null)}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+          transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+        >
+          <Box sx={{ px: 2, py: 0.5 }}>
+            <FormControlLabel
+              control={
+                <Switch
+                  size="small"
+                  checked={showTempoWorklogs}
+                  onChange={(event) => setShowTempoWorklogs(event.target.checked)}
+                />
+              }
+              label="Show Tempo worklogs"
+            />
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', maxWidth: 220 }}>
+              {!tempoConfigured
+                ? 'Connect Tempo in settings to load existing worklogs.'
+                : tempoWorklogsLoading
+                  ? 'Loading worklogs from Tempo…'
+                  : tempoWorklogsError
+                    ? `Couldn't load Tempo worklogs: ${tempoWorklogsError}`
+                    : `${tempoWorklogs.length} confirmed worklog${tempoWorklogs.length === 1 ? '' : 's'} in Tempo for this day.`}
+            </Typography>
+          </Box>
+        </Menu>
       </Stack>
       <TimelinePanel
         blocks={(day?.blocks ?? []).filter((block) => isPersistedNotebookBlock(block))}
         nowMinute={nowMinute}
         expandedId={expandedId}
+        pulseId={linkPulse?.side === 'timeline' ? linkPulse.id : null}
         tempoWorklogs={visibleTempoWorklogs}
         localWorklogIds={localWorklogIds}
         blockDragPreview={blockDragPreview}
         onCreateEntryAt={handleCreateEntryAtMinute}
-        onToggleExpand={handleTimelineBlockClick}
+        onToggleExpand={handleTimelineSelect}
         onAbsorbGap={handleAbsorbGap}
         onMerge={handleMerge}
         onPinPointerDown={handlePinPointerDown}
@@ -460,6 +547,12 @@ export function App() {
                 notebook={notebookPanel}
                 timeline={timelinePanel}
               />
+            ) : timelineCollapsed ? (
+              // Collapsed timeline: notebook takes the full width; the restore
+              // button lives in the Notebook header.
+              <Box sx={{ flex: 1, minWidth: 0, height: '100%', minHeight: 0, overflowY: 'auto' }}>
+                {notebookPanel}
+              </Box>
             ) : (
               <Stack direction="row" sx={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
                 <Box sx={{ flex: 1, minWidth: 0, height: '100%', minHeight: 0, overflowY: 'auto' }}>

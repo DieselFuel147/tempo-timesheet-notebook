@@ -2,6 +2,7 @@ use std::sync::OnceLock;
 
 use regex::Regex;
 
+use crate::core::notebook::is_lunch_block;
 use crate::state::NotebookBlock;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,7 +76,13 @@ pub fn validate_notebook_day(blocks: &[NotebookBlock], config: &ValidationConfig
         }
     }
 
-    let total_hours = timed
+    // Lunch fills a visual gap but is not logged work, so the aggregate hour
+    // guards ignore it (per-entry rules above still apply to lunch blocks).
+    let billable = timed
+        .iter()
+        .filter(|(block, _, _)| !is_lunch_block(block))
+        .collect::<Vec<_>>();
+    let total_hours = billable
         .iter()
         .map(|(_, start, end)| f64::from(end - start))
         .sum::<f64>()
@@ -121,7 +128,9 @@ pub fn validate_notebook_block(block: &NotebookBlock, config: &ValidationConfig)
             "INVALID_TICKET",
             "Ticket is required (e.g. ABC-123).".into(),
         );
-    } else if !config.ticket_pattern.is_match(key) {
+    } else if !is_lunch_block(block) && !config.ticket_pattern.is_match(key) {
+        // LUNCH is the one non-Jira key allowed through; every other rule below
+        // still applies to lunch entries.
         add(
             IssueLevel::Error,
             "INVALID_TICKET",
@@ -294,6 +303,65 @@ mod tests {
         assert!(issues
             .iter()
             .any(|issue| issue.code == "INVALID_TICKET" && issue.level == IssueLevel::Error));
+    }
+
+    #[test]
+    fn accepts_lunch_without_ticket_shape() {
+        assert_eq!(
+            validate_notebook_block(
+                &block(|block| block.ticket_id = "LUNCH".into()),
+                &default_validation_config(),
+            ),
+            Vec::new()
+        );
+        // Case-insensitive, like the uppercase-enforcing ticket input.
+        assert!(validate_notebook_block(
+            &block(|block| block.ticket_id = "lunch".into()),
+            &default_validation_config(),
+        )
+        .iter()
+        .all(|issue| issue.code != "INVALID_TICKET"));
+    }
+
+    #[test]
+    fn excludes_lunch_from_day_hour_totals() {
+        // 3h of work + 1h lunch: lunch must not satisfy the 4h minimum.
+        let issues = validate_notebook_day(
+            &[
+                block(|block| {
+                    block.id = "work".into();
+                    block.start_minute = Some(9 * 60);
+                    block.end_minute = Some(12 * 60);
+                }),
+                block(|block| {
+                    block.id = "lunch".into();
+                    block.ticket_id = "LUNCH".into();
+                    block.start_minute = Some(12 * 60);
+                    block.end_minute = Some(13 * 60);
+                }),
+            ],
+            &default_validation_config(),
+        );
+        assert!(issues
+            .iter()
+            .any(|issue| issue.code == "DAY_LOW" && issue.level == IssueLevel::Warning));
+    }
+
+    #[test]
+    fn lunch_only_day_still_warns_low() {
+        let issues = validate_notebook_day(
+            &[block(|block| {
+                block.id = "lunch".into();
+                block.ticket_id = "LUNCH".into();
+                block.start_minute = Some(12 * 60);
+                block.end_minute = Some(13 * 60);
+            })],
+            &default_validation_config(),
+        );
+        assert!(issues
+            .iter()
+            .any(|issue| issue.code == "DAY_LOW" && issue.level == IssueLevel::Warning));
+        assert!(!issues.iter().any(|issue| issue.code == "INVALID_TICKET"));
     }
 
     #[test]
