@@ -9,6 +9,8 @@ use state::AppState;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             let state = AppState::new(app.handle().clone())
                 .map_err(|error| -> Box<dyn std::error::Error> { Box::new(error) })?;
