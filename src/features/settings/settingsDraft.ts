@@ -1,4 +1,4 @@
-import type { AiSettings, SecretUpdates, Settings, ThresholdSettings } from '@shared/settings'
+import type { AiSettings, NotificationSettings, SecretUpdates, Settings, ThresholdSettings } from '@shared/settings'
 
 /** Editable snapshot of the settings form; secrets start blank every visit. */
 export interface DraftState {
@@ -11,6 +11,7 @@ export interface DraftState {
   clearJiraApiToken: boolean
   clearTempoApiToken: boolean
   ai: AiSettings
+  notifications: NotificationSettings
 }
 
 export function buildDraft(settings: Settings): DraftState {
@@ -24,6 +25,7 @@ export function buildDraft(settings: Settings): DraftState {
     clearJiraApiToken: false,
     clearTempoApiToken: false,
     ai: { ...settings.ai },
+    notifications: { ...settings.notifications },
   }
 }
 
@@ -52,6 +54,7 @@ export function draftToSettings(draft: DraftState, settings: Settings): Settings
       idleTimeoutSecs: draft.ai.idleTimeoutSecs,
       systemPrompt: draft.ai.systemPrompt,
     },
+    notifications: { ...draft.notifications },
   }
 }
 

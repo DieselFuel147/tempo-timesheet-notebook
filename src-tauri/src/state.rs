@@ -170,11 +170,28 @@ pub struct AiStatus {
     pub running: bool,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationSettings {
+    pub inactivity_enabled: bool,
+    pub inactivity_threshold_minutes: i32,
+}
+
+impl Default for NotificationSettings {
+    fn default() -> Self {
+        Self {
+            inactivity_enabled: false,
+            inactivity_threshold_minutes: 60,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, Default, PartialEq)]
 pub struct Settings {
     pub validation: ThresholdSettings,
     pub connections: ConnectionSettings,
     pub ai: AiSettings,
+    pub notifications: NotificationSettings,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]

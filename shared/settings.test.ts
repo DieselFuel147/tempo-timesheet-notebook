@@ -91,6 +91,16 @@ describe('mergeSettings', () => {
     expect('bogus' in merged).toBe(false)
   })
 
+  it('merges notification settings and clamps the threshold to at least one minute', () => {
+    const merged = mergeSettings({ notifications: { inactivityEnabled: true, inactivityThresholdMinutes: 45 } })
+    expect(merged.notifications.inactivityEnabled).toBe(true)
+    expect(merged.notifications.inactivityThresholdMinutes).toBe(45)
+
+    expect(mergeSettings({ notifications: { inactivityThresholdMinutes: 0.5 } }).notifications.inactivityThresholdMinutes).toBe(1)
+    // Absent section falls back to defaults.
+    expect(mergeSettings({}).notifications).toEqual(defaultSettings.notifications)
+  })
+
   it('merges connection settings and trims normalized values', () => {
     const merged = mergeSettings({
       connections: {
