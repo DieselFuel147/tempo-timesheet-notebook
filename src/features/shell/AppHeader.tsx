@@ -1,6 +1,7 @@
 import AccessTimeIcon from '@mui/icons-material/AccessTime'
 import SettingsIcon from '@mui/icons-material/Settings'
-import { AppBar, Box, IconButton, Stack, Toolbar, Typography, useTheme } from '@mui/material'
+import SystemUpdateAltIcon from '@mui/icons-material/SystemUpdateAlt'
+import { AppBar, Badge, Box, IconButton, Stack, Toolbar, Tooltip, Typography, useTheme } from '@mui/material'
 import type { JiraProfile } from '@shared/types'
 import { MONO_FONT } from '@app/theme'
 
@@ -12,10 +13,11 @@ interface Props {
   profile: JiraProfile | null
   clockLabel: string
   isLiveTyping: boolean
+  updateVersion: string | null
   onOpenSettings: () => void
 }
 
-export function AppHeader({ profile, clockLabel, isLiveTyping, onOpenSettings }: Props) {
+export function AppHeader({ profile, clockLabel, isLiveTyping, updateVersion, onOpenSettings }: Props) {
   const theme = useTheme()
   return (
     <AppBar position="static" elevation={0} sx={{ bgcolor: theme.ledger.barBg, color: theme.ledger.barText }}>
@@ -52,6 +54,15 @@ export function AppHeader({ profile, clockLabel, isLiveTyping, onOpenSettings }:
               {isLiveTyping ? 'logging' : 'idle'}
             </Typography>
           </Stack>
+          {updateVersion && (
+            <Tooltip title={`Version ${updateVersion} is available — open settings to install it`} arrow>
+              <IconButton color="inherit" size="small" onClick={onOpenSettings} aria-label={`Update to version ${updateVersion} available`}>
+                <Badge color="warning" variant="dot" overlap="circular">
+                  <SystemUpdateAltIcon fontSize="small" />
+                </Badge>
+              </IconButton>
+            </Tooltip>
+          )}
           <IconButton color="inherit" size="small" onClick={onOpenSettings} aria-label="Settings">
             <SettingsIcon fontSize="small" />
           </IconButton>

@@ -11,6 +11,8 @@ import { AppearanceSection } from './sections/AppearanceSection'
 import { ConnectionsSection } from './sections/ConnectionsSection'
 import { ValidationSection } from './sections/ValidationSection'
 import { AiSection } from './sections/AiSection'
+import { UpdaterSection } from '@app/features/updater/UpdaterSection'
+import type { AppUpdater } from '@app/features/updater/useAppUpdater'
 
 interface Props {
   settings: AppSettings
@@ -18,12 +20,13 @@ interface Props {
   onClose: () => void
   appearance: Appearance
   onAppearanceChange: (value: Appearance) => void
+  updater: AppUpdater
 }
 
 // A general settings page. Today it edits the validation thresholds; new config
 // sections (ports, credentials, admin defaults, …) get their own section
 // component under ./sections.
-export function SettingsPage({ settings, onSaved, onClose, appearance, onAppearanceChange }: Props) {
+export function SettingsPage({ settings, onSaved, onClose, appearance, onAppearanceChange, updater }: Props) {
   const [draft, setDraft] = useState<DraftState>(() => buildDraft(settings))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -84,6 +87,8 @@ export function SettingsPage({ settings, onSaved, onClose, appearance, onAppeara
       </Paper>
 
       <AiSection ai={draft.ai} onChange={(ai) => update({ ai: { ...draft.ai, ...ai } })} />
+
+      <UpdaterSection updater={updater} />
 
       <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mt: 2 }}>
         <Button

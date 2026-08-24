@@ -18,6 +18,7 @@ import { DateToolbar } from '@app/features/shell/DateToolbar'
 import { StatusBar } from '@app/features/shell/StatusBar'
 import { useAppClock } from '@app/features/shell/useAppClock'
 import { useAiStatus } from '@app/features/shell/useAiStatus'
+import { useAppUpdater } from '@app/features/updater/useAppUpdater'
 import { useNotebookDay } from '@app/features/notebook/useNotebookDay'
 import { useBlockDrag } from '@app/features/timeline/useBlockDrag'
 import { useTimelineSplit } from '@app/features/timeline/useTimelineSplit'
@@ -71,6 +72,13 @@ export function App() {
 
   const { tick, getCurrentMinute, resetClockAnchor, clockLabel } = useAppClock()
   const aiRunning = useAiStatus(settings.ai.enabled)
+  const updater = useAppUpdater()
+  const headerUpdateVersion =
+    updater.phase.kind === 'available'
+      ? updater.phase.update.version
+      : updater.phase.kind === 'ready'
+        ? updater.phase.version
+        : null
 
   const {
     day,
@@ -230,6 +238,7 @@ export function App() {
               onClose={() => setShowSettings(false)}
               appearance={appearance}
               onAppearanceChange={handleAppearanceChange}
+              updater={updater}
             />
           </Box>
         </Box>
@@ -262,6 +271,7 @@ export function App() {
               profile={profile}
               clockLabel={clockLabel}
               isLiveTyping={isLiveTyping}
+              updateVersion={headerUpdateVersion}
               onOpenSettings={() => setShowSettings(true)}
             />
 

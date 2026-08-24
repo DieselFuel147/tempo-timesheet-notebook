@@ -9,7 +9,7 @@ These notes document the current packaging stance for realistic internal distrib
 - Primary release target: macOS
 - Secondary release target after validation: Windows
 - Linux packaging is intentionally not part of the near-term enterprise path
-- Auto-updates are intentionally disabled for now
+- Auto-updates are enabled via `tauri-plugin-updater` against GitHub Releases, using Tauri's own minisign signing (not OS code signing)
 - No AI sidecar is bundled today
 - Credentials are entered in-app and stored in the OS keychain (no environment variables)
 
@@ -17,8 +17,8 @@ These notes document the current packaging stance for realistic internal distrib
 
 - The runtime is fully Tauri-native; there is no separate server process to package or run.
 - The native database lives under the Tauri app-data directory, not a repo-local path.
-- The frontend capability surface is still minimal (`core:default` only).
-- Updater artifacts are disabled, which keeps signing and release trust simpler during early internal rollout.
+- The frontend capability surface is still minimal (`core:default`, `updater:default`, and `process:allow-restart` only).
+- Updater artifacts are produced with Tauri's minisign signing; the private key lives only in GitHub secrets (`TAURI_SIGNING_PRIVATE_KEY`) and the public key is pinned in `tauri.conf.json`.
 
 ## Release Artifact Decisions
 
@@ -30,7 +30,6 @@ The Tauri bundle config is intentionally constrained to the targets we can credi
 We are not enabling:
 
 - MSI packaging yet
-- auto-updater artifacts
 - sidecar packaging config
 - per-machine Windows install defaults
 
@@ -38,7 +37,18 @@ Reasoning:
 
 - macOS requires the most immediate hardening work for enterprise-friendly installs
 - NSIS gives enough flexibility for an initial Windows path without committing to MSI fleet-management expectations yet
-- updater signing and hosting adds a second trust/distribution problem before the first one is solved
+- OS-level signing and notarization remain the outstanding trust/distribution problem; updater signing (Tauri minisign) is separate from that and already in place
+
+## Updater Design
+
+The built-in updater uses `tauri-plugin-updater` pointed at GitHub Releases:
+
+- Update feed: `https://github.com/DieselFuel147/tempo-timesheet-notebook/releases/latest/download/latest.json`
+- The release workflow builds with `createUpdaterArtifacts: true`, producing a signed `.app.tar.gz` (macOS updater payload), uploads it alongside the DMG, and generates/attaches the `latest.json` manifest from the `.sig` output.
+- The app checks at launch, shows a header badge when an update exists, and offers download/install/restart from Settings.
+- Tauri's minisign signature verifies update payloads independently of Apple code signing. An unsigned app can therefore self-update once a user has launched it past Gatekeeper on first install.
+- The private signing key is generated locally (`tauri signer generate`) and must never be committed. Losing it means shipping a new public key in a manually installed release.
+- Windows updates will use the NSIS installer payload once a Windows build job is added to the manifest; SmartScreen friction for unsigned installers still applies.
 
 ## macOS Release Checklist
 
@@ -131,7 +141,7 @@ Document for IT reviewers:
 
 - Jira base URL used by the deployment
 - `https://api.tempo.io`
-- whether any future release adds updater endpoints
+- updater endpoints: `github.com` and `objects.githubusercontent.com` (release asset download)
 - whether any future release adds model-download or AI runtime endpoints
 
 Today the answer for AI is simple:
@@ -206,13 +216,13 @@ This is the first phase that is realistic for broader internal evaluation.
 
 ### Phase 4: Only After Trust Pipeline Stabilizes
 
-- consider auto-updates
-- consider sidecar packaging
+- OS code signing and notarization for macOS
+- signed Windows builds
+- sidecar packaging
 - consider MSI or other enterprise deployment formats
 
 ## What Should Not Be Added Yet
 
-- no auto-updater enablement
 - no AI runtime packaging
 - no complicated dual-installer Windows strategy in the default config
 - no machine-wide Windows install default
