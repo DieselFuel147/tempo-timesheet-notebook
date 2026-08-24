@@ -23,6 +23,7 @@ import { AppearanceSection } from './sections/AppearanceSection'
 import { ConnectionsSection } from './sections/ConnectionsSection'
 import { ValidationSection } from './sections/ValidationSection'
 import { AiSection } from './sections/AiSection'
+import { NotificationsSection } from './sections/NotificationsSection'
 import { UpdaterSection } from '@app/features/updater/UpdaterSection'
 import type { AppUpdater } from '@app/features/updater/useAppUpdater'
 
@@ -112,6 +113,11 @@ export function SettingsPage({ settings, onSaved, onClose, appearance, onAppeara
       </Paper>
 
       <AiSection ai={draft.ai} onChange={(ai) => update({ ai: { ...draft.ai, ...ai } })} />
+
+      <NotificationsSection
+        notifications={draft.notifications}
+        onChange={(notifications) => update({ notifications: { ...draft.notifications, ...notifications } })}
+      />
 
       <UpdaterSection updater={updater} />
 

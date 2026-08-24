@@ -58,10 +58,18 @@ export interface AiSettings {
   systemPrompt: string
 }
 
+export interface NotificationSettings {
+  /** Master switch for the macOS inactivity reminder. */
+  inactivityEnabled: boolean
+  /** Idle minutes before the first reminder; repeats at the same interval. */
+  inactivityThresholdMinutes: number
+}
+
 export interface Settings {
   validation: ThresholdSettings
   connections: ConnectionSettings
   ai: AiSettings
+  notifications: NotificationSettings
 }
 
 export interface SecretUpdates {
@@ -89,6 +97,7 @@ export function cloneSettings(settings: Settings): Settings {
       tempo: { ...settings.connections.tempo },
     },
     ai: { ...settings.ai },
+    notifications: { ...settings.notifications },
   }
 }
 
@@ -111,6 +120,10 @@ export const defaultSettings: Settings = {
     modelPath: '',
     idleTimeoutSecs: 300,
     systemPrompt: DEFAULT_AI_SYSTEM_PROMPT,
+  },
+  notifications: {
+    inactivityEnabled: false,
+    inactivityThresholdMinutes: 60,
   },
 }
 
@@ -186,6 +199,23 @@ export function mergeSettings(raw: unknown, base: Settings = defaultSettings): S
     }
     if (typeof aiSettings.systemPrompt === 'string') {
       merged.ai.systemPrompt = aiSettings.systemPrompt
+    }
+  }
+
+  const notifications = (raw as { notifications?: unknown }).notifications
+  if (notifications && typeof notifications === 'object') {
+    const notificationSettings = notifications as Partial<NotificationSettings>
+    if (typeof notificationSettings.inactivityEnabled === 'boolean') {
+      merged.notifications.inactivityEnabled = notificationSettings.inactivityEnabled
+    }
+    if (
+      typeof notificationSettings.inactivityThresholdMinutes === 'number' &&
+      Number.isFinite(notificationSettings.inactivityThresholdMinutes)
+    ) {
+      merged.notifications.inactivityThresholdMinutes = Math.max(
+        1,
+        Math.floor(notificationSettings.inactivityThresholdMinutes),
+      )
     }
   }
 

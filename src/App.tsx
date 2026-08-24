@@ -22,6 +22,8 @@ import { StatusBar } from '@app/features/shell/StatusBar'
 import { StackedPanels, type StackedPanel } from '@app/features/shell/StackedPanels'
 import { useAppClock } from '@app/features/shell/useAppClock'
 import { useAiStatus } from '@app/features/shell/useAiStatus'
+import { useInactivityPrompt } from '@app/features/notifications/useInactivityPrompt'
+import { useUserActivity } from '@app/features/notifications/useUserActivity'
 import { useAppUpdater } from '@app/features/updater/useAppUpdater'
 import { useNotebookDay } from '@app/features/notebook/useNotebookDay'
 import { useBlockDrag } from '@app/features/timeline/useBlockDrag'
@@ -80,6 +82,15 @@ export function App() {
 
   const { tick, getCurrentMinute, resetClockAnchor, clockLabel } = useAppClock()
   const aiRunning = useAiStatus(settings.ai.enabled)
+  // macOS nudge when time entries have gone stale (see Settings > Reminders).
+  const lastAppActivityRef = useUserActivity()
+  useInactivityPrompt({
+    enabled: settings.notifications.inactivityEnabled,
+    thresholdMinutes: settings.notifications.inactivityThresholdMinutes,
+    workdayStartMin: settings.validation.workdayStartMin,
+    workdayEndMin: settings.validation.workdayEndMin,
+    lastActivityRef: lastAppActivityRef,
+  })
   const updater = useAppUpdater()
   const headerUpdateVersion =
     updater.phase.kind === 'available'

@@ -53,6 +53,18 @@ pub fn merge_settings_value(raw: &Value) -> Settings {
         }
     }
 
+    if let Some(notifications) = raw.get("notifications").and_then(Value::as_object) {
+        if let Some(value) = notifications.get("inactivityEnabled").and_then(Value::as_bool) {
+            merged.notifications.inactivity_enabled = value;
+        }
+        if let Some(value) = notifications
+            .get("inactivityThresholdMinutes")
+            .and_then(Value::as_i64)
+        {
+            merged.notifications.inactivity_threshold_minutes = value as i32;
+        }
+    }
+
     merged
 }
 
@@ -110,6 +122,10 @@ pub fn validate_settings(settings: &Settings) -> Result<(), String> {
     }
     if !settings.connections.tempo.base_url.is_empty() && !is_valid_url(&settings.connections.tempo.base_url) {
         return Err("Tempo base URL must be a valid absolute URL.".into());
+    }
+
+    if !(1..=1440).contains(&settings.notifications.inactivity_threshold_minutes) {
+        return Err("Inactivity reminder threshold must be between 1 and 1440 minutes.".into());
     }
 
     Ok(())
@@ -231,6 +247,22 @@ mod tests {
             validate_settings(&invalid).unwrap_err(),
             "Admin ticket must be a valid key, e.g. ABC-123."
         );
+    }
+
+    #[test]
+    fn merge_reads_notifications_section_and_defaults_when_absent() {
+        let merged = merge_settings_value(&json!({
+            "notifications": {
+                "inactivityEnabled": true,
+                "inactivityThresholdMinutes": 45
+            }
+        }));
+        assert!(merged.notifications.inactivity_enabled);
+        assert_eq!(merged.notifications.inactivity_threshold_minutes, 45);
+
+        // Absent notifications section falls back to defaults.
+        let defaulted = merge_settings_value(&json!({ "validation": {} }));
+        assert_eq!(defaulted.notifications, default_settings().notifications);
     }
 
     #[test]
