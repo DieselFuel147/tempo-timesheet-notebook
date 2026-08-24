@@ -4,7 +4,7 @@ import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 import ViewTimelineIcon from '@mui/icons-material/ViewTimeline'
 import type { JiraProfile } from '@shared/types'
 import { cloneSettings, defaultSettings, type Settings as AppSettings } from '@shared/settings'
-import { isPersistedNotebookBlock, type TruncatedSummaryEntry } from '@shared/notebook'
+import { isLunchBlock, isPersistedNotebookBlock, type TruncatedSummaryEntry } from '@shared/notebook'
 import { validateNotebookDay, type ValidationIssue } from '@shared/validation'
 import { api } from '@app/api'
 import { isPushableBlock } from '@app/features/sync/syncStatus'
@@ -285,13 +285,21 @@ export function App() {
       }, 0),
     [weekMonday, weekDays, date, day, nowMinute, tick],
   )
-  const trackedCount = useMemo(() => (day?.blocks ?? []).filter(isPersistedNotebookBlock).length, [day])
+  // Lunch entries persist but stay invisible to every stat: not tracked time,
+  // not a ticket, never pushable (isPushableBlock already excludes them).
+  const trackedCount = useMemo(
+    () => (day?.blocks ?? []).filter((block) => isPersistedNotebookBlock(block) && !isLunchBlock(block)).length,
+    [day],
+  )
   const pushableBlocks = useMemo(() => (day?.blocks ?? []).filter(isPushableBlock), [day])
   const syncedBlocks = useMemo(() => pushableBlocks.filter((block) => block.tempoWorklogId).length, [pushableBlocks])
   const unsyncedBlocks = useMemo(() => pushableBlocks.filter((block) => !block.tempoWorklogId).length, [pushableBlocks])
   const ticketCount = useMemo(() => {
     const tickets = new Set(
-      (day?.blocks ?? []).map((block) => block.ticketId.trim()).filter((ticketId) => ticketId.length > 0),
+      (day?.blocks ?? [])
+        .filter((block) => !isLunchBlock(block))
+        .map((block) => block.ticketId.trim())
+        .filter((ticketId) => ticketId.length > 0),
     )
     return tickets.size
   }, [day])

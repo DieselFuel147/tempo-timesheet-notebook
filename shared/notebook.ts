@@ -26,6 +26,19 @@ export function isPersistedNotebookBlock(block: NotebookBlock): boolean {
   return block.startMinute !== null || block.text.trim().length > 0 || block.ticketId.trim().length > 0
 }
 
+// Pseudo-ticket marking a lunch break. It renders like any other entry so the
+// user can see the midday gap is accounted for, but it is purely visual: never
+// validated as a Jira key, never pushed to Tempo, never counted in totals.
+export const LUNCH_TICKET_ID = 'LUNCH'
+
+export function isLunchTicketId(ticketId: string): boolean {
+  return ticketId.trim().toUpperCase() === LUNCH_TICKET_ID
+}
+
+export function isLunchBlock(block: Pick<NotebookBlock, 'ticketId'>): boolean {
+  return isLunchTicketId(block.ticketId)
+}
+
 export function notebookBlockToWorklogInput(
   block: NotebookBlock,
   issueId: number,
@@ -63,7 +76,8 @@ export interface TruncatedSummaryEntry {
 
 // Entries that a push would send with a truncated auto summary. Filters mirror
 // the backend's push loop: closed + timed blocks, not already synced, no
-// summary override (overrides are never truncated).
+// summary override (overrides are never truncated). Lunch entries are never
+// pushed, so they can't appear here either.
 export function truncatedAutoSummaries(
   blocks: NotebookBlock[],
   maxSummaryChars: number,
@@ -72,6 +86,7 @@ export function truncatedAutoSummaries(
   for (const block of blocks) {
     if (!block.closed || block.startMinute === null || block.endMinute === null) continue
     if (block.tempoWorklogId != null) continue // synced — a push skips it
+    if (isLunchBlock(block)) continue // lunch — never pushed at all
     if (block.summaryOverride?.trim()) continue
     const original = block.text.trim()
     if (original.length <= maxSummaryChars) continue

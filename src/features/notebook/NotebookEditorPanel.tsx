@@ -15,7 +15,7 @@ import {
   useTheme,
 } from '@mui/material'
 import type { NotebookBlock } from '@shared/types'
-import { autoSummary, isPersistedNotebookBlock } from '@shared/notebook'
+import { autoSummary, isLunchBlock, isPersistedNotebookBlock } from '@shared/notebook'
 import type { ValidationIssue } from '@shared/validation'
 import { formatHours, minutesToHHmm, parseDuration } from '@app/dateutil'
 import { assignBlockColors } from '@app/features/notebook/blockColors'
@@ -193,7 +193,8 @@ export const NotebookEditorPanel = memo(function NotebookEditorPanel({
           const isReopenable = block.id === activeReopenableId
           const isLive = block.id === activeStartedId
           const syncChip = blockSyncLabel(block)
-          const accent = blockColorMap.get(block.id) ?? null
+          // LUNCH keeps the fixed amber so it reads as non-work in both panels.
+          const accent = isLunchBlock(block) ? theme.ledger.lunchBlock : blockColorMap.get(block.id) ?? null
           const isPulsing = pulseId === block.id
 
           return (

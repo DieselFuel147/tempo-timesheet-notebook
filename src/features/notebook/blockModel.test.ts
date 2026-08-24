@@ -12,6 +12,7 @@ import {
   markBlockDirty,
   normalizeNotebookDay,
   persistedNotebookDay,
+  totalTrackedMinutes,
   wallClockMinuteForDate,
 } from './blockModel'
 
@@ -129,6 +130,21 @@ describe('block model', () => {
     expect(blockDuration(block({ startMinute: null }), 600)).toBeNull()
     // Never negative if "now" precedes the start.
     expect(blockDuration(block({ closed: false, endMinute: null }), 60)).toBe(0)
+  })
+
+  it('excludes lunch entries from tracked-time totals', () => {
+    const blocks = [
+      block({ id: 'work', startMinute: 9 * 60, endMinute: 12 * 60 }),
+      block({
+        id: 'lunch',
+        ticketId: 'LUNCH',
+        startMinute: 12 * 60,
+        endMinute: 12 * 60 + 30,
+      }),
+      // Even an in-progress lunch contributes nothing.
+      block({ id: 'open-lunch', ticketId: 'lunch', startMinute: 13 * 60, closed: false, endMinute: null }),
+    ]
+    expect(totalTrackedMinutes(blocks, 13 * 60 + 30)).toBe(3 * 60)
   })
 
   it('collects timed blocks in chronological order with live ends', () => {

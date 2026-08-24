@@ -3,7 +3,7 @@ import ExpandIcon from '@mui/icons-material/Expand'
 import LinkIcon from '@mui/icons-material/Link'
 import { alpha, Box, Chip, IconButton, Paper, Stack, Tooltip, Typography, useTheme } from '@mui/material'
 import type { NotebookBlock, TempoWorklog } from '@shared/types'
-import { notebookBlockSummary } from '@shared/notebook'
+import { isLunchTicketId, notebookBlockSummary } from '@shared/notebook'
 import { formatHours } from '@app/dateutil'
 import { DAY_MINUTES, getTimedBlocks } from '@app/features/notebook/blockModel'
 import { toTempoWorklogViews } from '@app/features/sync/tempoViews'
@@ -84,12 +84,14 @@ export function TimelinePanel({
       const ticketId = block.ticketId.trim()
       if (!ticketId) continue
       if (!colors.has(ticketId)) {
-        colors.set(ticketId, palette[nextColor % palette.length])
-        nextColor += 1
+        // LUNCH keeps a fixed amber so it never reads as a work ticket; the
+        // rotating palette is reserved for real ones.
+        colors.set(ticketId, isLunchTicketId(ticketId) ? theme.ledger.lunchBlock : palette[nextColor % palette.length])
+        if (!isLunchTicketId(ticketId)) nextColor += 1
       }
     }
     return colors
-  }, [blocks, palette])
+  }, [blocks, palette, theme.ledger.lunchBlock])
 
   const timedBlocks = useMemo(() => getTimedBlocks(blocks, nowMinute), [blocks, nowMinute])
   const tempoViews = useMemo(

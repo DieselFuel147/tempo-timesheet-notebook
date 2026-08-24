@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use async_trait::async_trait;
 
-use crate::core::notebook::{notebook_block_summary, notebook_block_to_worklog_input};
+use crate::core::notebook::{is_lunch_block, notebook_block_summary, notebook_block_to_worklog_input};
 use crate::core::settings::to_validation_config;
 use crate::core::validation::{validate_notebook_day, IssueLevel};
 use crate::error::AppError;
@@ -190,7 +190,10 @@ fn validation_blockers(blocks: &[NotebookBlock], settings: &Settings) -> Vec<Str
 }
 
 fn pushable_block(block: &NotebookBlock, max_summary_chars: usize) -> bool {
-    block.closed
+    // LUNCH entries are visual gap-fillers: they must never be validated for
+    // push, resolved against Jira, or sent to Tempo.
+    !is_lunch_block(block)
+        && block.closed
         && block.start_minute.is_some()
         && block.end_minute.is_some()
         && !notebook_block_summary(block, max_summary_chars).trim().is_empty()
@@ -624,5 +627,43 @@ mod tests {
         let dry = dry_run_day("2025-05-09", &jira, &tempo, &repo).await.unwrap();
         assert_eq!(dry.planned.len(), 1);
         assert_eq!(dry.skipped, 0);
+    }
+
+    #[tokio::test]
+    async fn never_pushes_lunch_entries() {
+        let repo = FakeRepo::new(vec![
+            block(|block| {
+                block.id = "lunch".into();
+                block.ticket_id = "LUNCH".into();
+                block.start_minute = Some(12 * 60);
+                block.end_minute = Some(12 * 60 + 30);
+                block.text = String::from("Lunch");
+            }),
+            block(|block| {
+                block.id = "work".into();
+                block.start_minute = Some(9 * 60);
+                block.end_minute = Some(9 * 60 + 30);
+            }),
+        ]);
+        let jira = FakeJira {
+            resolve_calls: AtomicUsize::new(0),
+        };
+        let tempo = FakeTempo {
+            created: Mutex::new(Vec::new()),
+        };
+
+        // Dry run first (it mutates nothing): only the real entry is planned,
+        // lunch isn't even counted as skipped pushable work.
+        let dry: DryRunSummary = dry_run_day("2025-05-09", &jira, &tempo, &repo).await.unwrap();
+        assert_eq!(dry.planned.len(), 1);
+        assert_eq!(dry.planned[0].ticket_id, "PEA-777");
+
+        let result = push_day("2025-05-09", &jira, &tempo, &repo).await.unwrap();
+        assert_eq!(result.synced, 1);
+        assert_eq!(result.skipped, 0);
+        assert_eq!(result.blocked.len(), 0);
+        let created = tempo.created.lock().unwrap();
+        assert_eq!(created.len(), 1);
+        assert_eq!(created[0].issue_id, 111);
     }
 }
