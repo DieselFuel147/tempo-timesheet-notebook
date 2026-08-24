@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import FilterAltIcon from '@mui/icons-material/FilterAlt'
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
+import ViewTimelineIcon from '@mui/icons-material/ViewTimeline'
 import type { JiraProfile } from '@shared/types'
 import { cloneSettings, defaultSettings, type Settings as AppSettings } from '@shared/settings'
 import { isPersistedNotebookBlock, type TruncatedSummaryEntry } from '@shared/notebook'
@@ -21,6 +22,7 @@ import { AppHeader } from '@app/features/shell/AppHeader'
 import { DateToolbar } from '@app/features/shell/DateToolbar'
 import { StatusBar } from '@app/features/shell/StatusBar'
 import { StackedPanels, type StackedPanel } from '@app/features/shell/StackedPanels'
+import { readTimelineCollapsed, writeTimelineCollapsed } from '@app/features/shell/timelineCollapsed'
 import { useAppClock } from '@app/features/shell/useAppClock'
 import { useAiStatus } from '@app/features/shell/useAiStatus'
 import { useInactivityPrompt } from '@app/features/notifications/useInactivityPrompt'
@@ -78,6 +80,12 @@ export function App() {
   const [view, setView] = useState<View>('main')
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [stackedPanel, setStackedPanel] = useState<StackedPanel>('notebook')
+  // Side-by-side layout only: StackedPanels always keeps both panels reachable.
+  const [timelineCollapsed, setTimelineCollapsed] = useState(() => readTimelineCollapsed())
+  const handleTimelineCollapsedChange = useCallback((collapsed: boolean) => {
+    setTimelineCollapsed(collapsed)
+    writeTimelineCollapsed(collapsed)
+  }, [])
   const [showTempoWorklogs, setShowTempoWorklogs] = useState(true)
   const [filterMenuAnchor, setFilterMenuAnchor] = useState<HTMLElement | null>(null)
 
@@ -320,9 +328,24 @@ export function App() {
         background: `repeating-linear-gradient(180deg, ${theme.ledger.ruledPaperBase}, ${theme.ledger.ruledPaperBase} 27px, ${theme.ledger.ruledPaperLine} 27px, ${theme.ledger.ruledPaperLine} 28px)`,
       }}
     >
-      <Typography variant="subtitle1" sx={{ mb: 1.25, fontWeight: 600 }}>
-        Notebook
-      </Typography>
+      <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between', mb: 1.25 }}>
+        <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+          Notebook
+        </Typography>
+        {/* Single persistent toggle for the side-by-side Timeline panel; stays
+            in the same spot whether the timeline is shown or hidden. */}
+        {!stackedMode && (
+          <Tooltip title={timelineCollapsed ? 'Show timeline' : 'Hide timeline'} arrow>
+            <IconButton
+              size="small"
+              aria-label={timelineCollapsed ? 'Show timeline' : 'Hide timeline'}
+              onClick={() => handleTimelineCollapsedChange(!timelineCollapsed)}
+            >
+              <ViewTimelineIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        )}
+      </Stack>
       <NotebookEditorPanel
         blocks={day?.blocks ?? []}
         adminTicket={settings.validation.adminTicket}
@@ -468,6 +491,12 @@ export function App() {
                 notebook={notebookPanel}
                 timeline={timelinePanel}
               />
+            ) : timelineCollapsed ? (
+              // Collapsed timeline: notebook takes the full width; the restore
+              // button lives in the Notebook header.
+              <Box sx={{ flex: 1, minWidth: 0, height: '100%', minHeight: 0, overflowY: 'auto' }}>
+                {notebookPanel}
+              </Box>
             ) : (
               <Stack direction="row" sx={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
                 <Box sx={{ flex: 1, minWidth: 0, height: '100%', minHeight: 0, overflowY: 'auto' }}>
