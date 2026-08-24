@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import FilterAltIcon from '@mui/icons-material/FilterAlt'
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 import type { JiraProfile } from '@shared/types'
 import { cloneSettings, defaultSettings, type Settings as AppSettings } from '@shared/settings'
 import { isPersistedNotebookBlock, type TruncatedSummaryEntry } from '@shared/notebook'
@@ -53,6 +54,11 @@ import { useAppTheme } from './useAppTheme'
 // don't churn (and its draft-reset effect doesn't refire) on every render.
 const NO_ENTRIES: TruncatedSummaryEntry[] = []
 const NO_IDS: ReadonlySet<string> = new Set()
+
+// Usage hints for the Timeline panel, surfaced via the header info icon so the
+// body stays compact. Kept verbatim from the former always-visible caption.
+const TIMELINE_HINT =
+  'Tap a closed block to reveal drag pins, gap absorb controls, and merge actions. Click a blank space to create a new entry. Click and drag a block to move it. Shared ticket IDs keep the same color and connect across the timeline. Skinny bars on the right are worklogs already in Tempo.'
 
 type View = 'main' | 'settings' | 'log'
 
@@ -339,53 +345,55 @@ export function App() {
 
   const timelinePanel = (
     <Box sx={{ p: 2, minHeight: '100%', bgcolor: theme.ledger.rulerPanel }}>
-      <Stack spacing={1}>
-        <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
+      <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
+        <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
           <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
             Timeline
           </Typography>
-          <Tooltip title="Timeline filters" arrow>
-            <IconButton
-              size="small"
-              aria-label="Timeline filters"
-              onClick={(event) => setFilterMenuAnchor(event.currentTarget)}
-            >
-              <FilterAltIcon fontSize="small" />
+          <Tooltip title={TIMELINE_HINT} arrow>
+            <IconButton size="small" aria-label="About the timeline panel">
+              <InfoOutlinedIcon fontSize="small" />
             </IconButton>
           </Tooltip>
-          <Menu
-            anchorEl={filterMenuAnchor}
-            open={Boolean(filterMenuAnchor)}
-            onClose={() => setFilterMenuAnchor(null)}
-            anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-            transformOrigin={{ vertical: 'top', horizontal: 'right' }}
-          >
-            <Box sx={{ px: 2, py: 0.5 }}>
-              <FormControlLabel
-                control={
-                  <Switch
-                    size="small"
-                    checked={showTempoWorklogs}
-                    onChange={(event) => setShowTempoWorklogs(event.target.checked)}
-                  />
-                }
-                label="Show Tempo worklogs"
-              />
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', maxWidth: 220 }}>
-                {!tempoConfigured
-                  ? 'Connect Tempo in settings to load existing worklogs.'
-                  : tempoWorklogsLoading
-                    ? 'Loading worklogs from Tempo…'
-                    : tempoWorklogsError
-                      ? `Couldn't load Tempo worklogs: ${tempoWorklogsError}`
-                      : `${tempoWorklogs.length} confirmed worklog${tempoWorklogs.length === 1 ? '' : 's'} in Tempo for this day.`}
-              </Typography>
-            </Box>
-          </Menu>
         </Stack>
-        <Typography variant="body2" color="text.secondary">
-          Tap a closed block to reveal drag pins, gap absorb controls, and merge actions. Shared ticket IDs keep the same color and connect across the timeline. Hatched bars on the right are worklogs already in Tempo.
-        </Typography>
+        <Tooltip title="Timeline filters" arrow>
+          <IconButton
+            size="small"
+            aria-label="Timeline filters"
+            onClick={(event) => setFilterMenuAnchor(event.currentTarget)}
+          >
+            <FilterAltIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+        <Menu
+          anchorEl={filterMenuAnchor}
+          open={Boolean(filterMenuAnchor)}
+          onClose={() => setFilterMenuAnchor(null)}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+          transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+        >
+          <Box sx={{ px: 2, py: 0.5 }}>
+            <FormControlLabel
+              control={
+                <Switch
+                  size="small"
+                  checked={showTempoWorklogs}
+                  onChange={(event) => setShowTempoWorklogs(event.target.checked)}
+                />
+              }
+              label="Show Tempo worklogs"
+            />
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', maxWidth: 220 }}>
+              {!tempoConfigured
+                ? 'Connect Tempo in settings to load existing worklogs.'
+                : tempoWorklogsLoading
+                  ? 'Loading worklogs from Tempo…'
+                  : tempoWorklogsError
+                    ? `Couldn't load Tempo worklogs: ${tempoWorklogsError}`
+                    : `${tempoWorklogs.length} confirmed worklog${tempoWorklogs.length === 1 ? '' : 's'} in Tempo for this day.`}
+            </Typography>
+          </Box>
+        </Menu>
       </Stack>
       <TimelinePanel
         blocks={(day?.blocks ?? []).filter((block) => isPersistedNotebookBlock(block))}
