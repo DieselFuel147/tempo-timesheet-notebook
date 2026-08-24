@@ -1,7 +1,19 @@
 import { useState } from 'react'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
-import { Alert, Box, Button, IconButton, Paper, Stack, Typography } from '@mui/material'
+import {
+  Alert,
+  Box,
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  IconButton,
+  Paper,
+  Stack,
+  Typography,
+} from '@mui/material'
 import type { Settings as AppSettings } from '@shared/settings'
 import { defaultSettings } from '@shared/settings'
 import { api } from '@app/api'
@@ -31,6 +43,7 @@ export function SettingsPage({ settings, onSaved, onClose, appearance, onAppeara
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
+  const [confirmCloseOpen, setConfirmCloseOpen] = useState(false)
 
   const update = (patch: Partial<DraftState>) => {
     setDraft((d) => ({ ...d, ...patch }))
@@ -45,7 +58,7 @@ export function SettingsPage({ settings, onSaved, onClose, appearance, onAppeara
     draft.clearJiraApiToken ||
     draft.clearTempoApiToken
 
-  async function save() {
+  async function save(): Promise<boolean> {
     setSaving(true)
     setError(null)
     try {
@@ -60,17 +73,29 @@ export function SettingsPage({ settings, onSaved, onClose, appearance, onAppeara
       onSaved(result)
       setDraft(buildDraft(result))
       setSaved(true)
+      return true
     } catch (e) {
       setError((e as Error).message)
+      return false
     } finally {
       setSaving(false)
     }
   }
 
+  function requestClose() {
+    if (dirty) setConfirmCloseOpen(true)
+    else onClose()
+  }
+
+  async function handleSaveAndClose() {
+    const ok = await save()
+    if (ok) onClose()
+  }
+
   return (
     <Box sx={{ maxWidth: 700, mx: 'auto' }}>
       <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mb: 2 }}>
-        <IconButton type="button" onClick={onClose} title="Back to timesheet" aria-label="Back to timesheet">
+        <IconButton type="button" onClick={requestClose} title="Back to timesheet" aria-label="Back to timesheet">
           <ArrowBackIcon fontSize="small" />
         </IconButton>
         <Typography variant="h5" component="h2">Settings</Typography>
@@ -106,7 +131,7 @@ export function SettingsPage({ settings, onSaved, onClose, appearance, onAppeara
         <Typography variant="body2" color="success.main" sx={{ flex: 1 }}>
           {saved && !dirty ? 'Saved ✓' : ''}
         </Typography>
-        <Button type="button" variant="contained" disabled={saving || !dirty} onClick={save}>
+        <Button type="button" variant="contained" disabled={saving || !dirty} onClick={() => void save()}>
           {saving ? 'Saving…' : 'Save settings'}
         </Button>
       </Stack>
@@ -114,6 +139,45 @@ export function SettingsPage({ settings, onSaved, onClose, appearance, onAppeara
       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 4 }}>
         Version {__APP_VERSION__}
       </Typography>
+
+      <Dialog
+        open={confirmCloseOpen}
+        onClose={(_event, reason) => {
+          if (reason !== 'backdropClick') setConfirmCloseOpen(false)
+        }}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle component="div">
+          <Typography variant="h6" component="h2">
+            Unsaved changes
+          </Typography>
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary">
+            Your settings changes haven&apos;t been saved yet. Save them before going back to the timesheet?
+          </Typography>
+          {error && (
+            <Alert severity="error" sx={{ mt: 2 }}>
+              {error}
+            </Alert>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, py: 2 }}>
+          <Button
+            onClick={() => {
+              setConfirmCloseOpen(false)
+              onClose()
+            }}
+            disabled={saving}
+          >
+            Don&apos;t Save
+          </Button>
+          <Button onClick={() => void handleSaveAndClose()} variant="contained" disabled={saving}>
+            {saving ? 'Saving…' : 'Save'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   )
 }
