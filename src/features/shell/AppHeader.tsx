@@ -1,6 +1,7 @@
 import AccessTimeIcon from '@mui/icons-material/AccessTime'
 import SettingsIcon from '@mui/icons-material/Settings'
 import SystemUpdateAltIcon from '@mui/icons-material/SystemUpdateAlt'
+import TextSnippetIcon from '@mui/icons-material/TextSnippet'
 import { AppBar, Badge, Box, IconButton, Stack, Toolbar, Tooltip, Typography, useTheme } from '@mui/material'
 import type { JiraProfile } from '@shared/types'
 import { MONO_FONT } from '@app/theme'
@@ -14,10 +15,11 @@ interface Props {
   clockLabel: string
   isLiveTyping: boolean
   updateVersion: string | null
+  onOpenLog: () => void
   onOpenSettings: () => void
 }
 
-export function AppHeader({ profile, clockLabel, isLiveTyping, updateVersion, onOpenSettings }: Props) {
+export function AppHeader({ profile, clockLabel, isLiveTyping, updateVersion, onOpenLog, onOpenSettings }: Props) {
   const theme = useTheme()
   return (
     <AppBar position="static" elevation={0} sx={{ bgcolor: theme.ledger.barBg, color: theme.ledger.barText }}>
@@ -63,6 +65,11 @@ export function AppHeader({ profile, clockLabel, isLiveTyping, updateVersion, on
               </IconButton>
             </Tooltip>
           )}
+          <Tooltip title="Activity log — recent dry runs and pushes" arrow>
+            <IconButton color="inherit" size="small" onClick={onOpenLog} aria-label="Activity log">
+              <TextSnippetIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
           <IconButton color="inherit" size="small" onClick={onOpenSettings} aria-label="Settings">
             <SettingsIcon fontSize="small" />
           </IconButton>

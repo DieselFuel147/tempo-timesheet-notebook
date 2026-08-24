@@ -16,6 +16,7 @@ import {
 } from './blockModel'
 import { parseDuration } from '@app/dateutil'
 import { api } from '@app/api'
+import type { NotebookErrorSource } from '@app/features/activity/activityLog'
 
 type SetExpandedId = (updater: string | null | ((current: string | null) => string | null)) => void
 
@@ -25,7 +26,8 @@ interface Options {
   /** Re-anchors the app clock when a day finishes loading. */
   resetClockAnchor: (forDate: string) => void
   setExpandedId: SetExpandedId
-  onError: (message: string | null) => void
+  /** Receives notebook failures (day load, autosave, AI suggest) for logging. */
+  onError: (source: NotebookErrorSource, message: string) => void
 }
 
 // Owns the notebook day lifecycle: loading/saving a day, the live-entry idle
@@ -49,7 +51,6 @@ export function useNotebookDay({ date, getCurrentMinute, resetClockAnchor, setEx
   useEffect(() => {
     let cancelled = false
     setLoading(true)
-    onError(null)
     api
       .getDay(date)
       .then((loaded) => {
@@ -61,7 +62,7 @@ export function useNotebookDay({ date, getCurrentMinute, resetClockAnchor, setEx
       })
       .catch((cause) => {
         if (cancelled) return
-        onError((cause as Error).message)
+        onError('day-load', (cause as Error).message)
         const fallbackDay = normalizeNotebookDay({ date, blocks: [] })
         setDay(fallbackDay)
         resetClockAnchor(date)
@@ -77,7 +78,7 @@ export function useNotebookDay({ date, getCurrentMinute, resetClockAnchor, setEx
   const scheduleSave = useCallback((nextDay: NotebookDay) => {
     if (saveTimer.current) clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(() => {
-      api.saveDay({ day: persistedNotebookDay(nextDay) }).catch((cause) => onError(`Save failed: ${(cause as Error).message}`))
+      api.saveDay({ day: persistedNotebookDay(nextDay) }).catch((cause) => onError('day-save', (cause as Error).message))
     }, 500)
   }, [onError])
 
@@ -386,12 +387,11 @@ export function useNotebookDay({ date, getCurrentMinute, resetClockAnchor, setEx
     if (!notes) return
 
     setSuggestingId(id)
-    onError(null)
     try {
       const suggestion = (await api.suggestSummary(notes)).trim()
       if (suggestion) handleSummaryChange(id, suggestion)
     } catch (cause) {
-      onError(`Suggest failed: ${(cause as Error).message}`)
+      onError('ai-suggest', (cause as Error).message)
     } finally {
       setSuggestingId(null)
     }

@@ -83,7 +83,7 @@ export function DateToolbar({
           onClick={onDryRun}
           disabled={actionRunning || pushableCount === 0}
         >
-          {dryRunRunning ? 'Running dry run…' : 'Dry run'}
+          {dryRunRunning ? 'Running...' : 'Dry run'}
         </Button>
         <Button
           variant="contained"

@@ -68,7 +68,7 @@ export function SettingsPage({ settings, onSaved, onClose, appearance, onAppeara
   }
 
   return (
-    <Box sx={{ maxWidth: 640 }}>
+    <Box sx={{ maxWidth: 700, mx: 'auto' }}>
       <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mb: 2 }}>
         <IconButton type="button" onClick={onClose} title="Back to timesheet" aria-label="Back to timesheet">
           <ArrowBackIcon fontSize="small" />
