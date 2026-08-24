@@ -105,6 +105,10 @@ export function SettingsPage({ settings, onSaved, onClose, appearance, onAppeara
           {saving ? 'Saving…' : 'Save settings'}
         </Button>
       </Stack>
+
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 4 }}>
+        Version {__APP_VERSION__}
+      </Typography>
     </Box>
   )
 }
