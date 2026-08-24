@@ -15,7 +15,23 @@ Tempo's own UI is slow, and it doesn't let you keep your running notes and your
 loggable time in one place. This keeps the notepad feel but constrains entry
 enough that nothing has to be re-interpreted before it goes to Tempo.
 
-## Setup
+## Install
+
+Currently only packaged for mac silicon.
+
+Download latest .dmg from releases page > open and drag installer to Applications folder.
+
+While this is still in development you will need to remove quarantine flag via terminal to run it (only need to do this once)
+
+`xattr -cr "/Applications/Tempo Timesheet Tool.app"` 
+
+You can then open the app normally.
+
+To setup the Jira and Tempo sync, open settings and follow the instructions for configuring the API keys.
+
+You can also configure a local AI model for summarising long ticket notes into shorter descriptions for the tempo entry.
+
+## Dev setup
 
 Requires:
 
@@ -71,6 +87,10 @@ Desktop package build:
 ```bash
 npm run tauri:build
 ```
+
+Versioning is automatic and runs when a branch is merged to main. Semantic versioning used and based on label assigned to PR, one will be suggested from PR title but can be manually set.
+
+Once a PR is successfully merged a release will be automatically built and published.
 
 Packaging, signing, and enterprise rollout constraints are documented in
 [`PACKAGING.md`](./PACKAGING.md).
