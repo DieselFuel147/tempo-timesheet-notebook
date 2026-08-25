@@ -82,6 +82,21 @@ Key fields (`shared/types.ts`): `id`, `date`, `startMinute`/`endMinute`
 - Summary shown/uploaded = `summaryOverride ?? autoSummary(text)` (trimmed,
   truncated with `…` inside the char limit).
 
+## Database
+
+- Single SQLite file `tempo.db` in `app_data_dir`, opened **WAL-mode** by
+  `Repository` (`src-tauri/src/core/db/repo.rs`). One connection, owned by
+  `AppState` (state.rs) — no pool. Anything that swaps/replaces DB contents must
+  go through that connection, not file copies behind its back.
+- Migrations: append-only SQL list in `src-tauri/src/core/db/schema.rs`, tracked
+  via the `user_version` pragma. Forward-only — never edit an already-applied
+  migration, only add to the end.
+- Tables: `notebook_days` + `notebook_blocks` (live data); `settings` (one JSON
+  blob under key `app`); `issue_cache` (disposable Jira cache); `days` +
+  `entries` (legacy wave0, **dead** — no code reads or writes them).
+- **Secrets are never in SQLite**: Jira/Tempo tokens live in the OS keychain
+  (`secret_store.rs`). Any DB backup therefore excludes secrets by design.
+
 ## Validation & push
 
 - Two tiers: `error` blocks the whole push; `warning` is informational
