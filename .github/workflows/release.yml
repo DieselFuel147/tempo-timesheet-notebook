@@ -19,6 +19,7 @@ jobs:
     outputs:
       released: ${{ steps.bump.outputs.released }}
       version: ${{ steps.bump.outputs.version }}
+      pr_number: ${{ steps.bump.outputs.pr_number }}
     steps:
       - name: Check out code
         uses: actions/checkout@v5
@@ -140,6 +141,7 @@ jobs:
           {
             echo "released=true"
             echo "version=${VERSION}"
+            echo "pr_number=${PR_NUMBER}"
           } >> "$GITHUB_OUTPUT"
           echo "Releasing ${VERSION} from PR #${PR_NUMBER}" >> "$GITHUB_STEP_SUMMARY"
 
@@ -179,14 +181,62 @@ jobs:
       - name: Create GitHub release with artifacts
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ needs.version-bump.outputs.version }}
+          PR_NUMBER: ${{ needs.version-bump.outputs.pr_number }}
         run: |
-          gh release create "v${{ needs.version-bump.outputs.version }}" \
-            --title "v${{ needs.version-bump.outputs.version }}" \
-            --generate-notes \
+          set -euo pipefail
+
+          # Release notes come from the merged PR's "## Summary" section (the
+          # user-curated version of the changes) rather than GitHub's
+          # auto-generated PR-title list. Falls back to the PR title when the
+          # section is empty or missing.
+          PR_BODY="$(gh pr view "${PR_NUMBER}" --json body --jq '.body')"
+          PR_TITLE="$(gh pr view "${PR_NUMBER}" --json title --jq '.title')"
+
+          NOTES="$(PR_BODY="${PR_BODY}" node -e '
+            const lines = String(process.env.PR_BODY ?? "").split(/\r?\n/);
+            let collecting = false;
+            const section = [];
+            for (const line of lines) {
+              const heading = line.match(/^#{1,6}\s*(.*)$/);
+              if (heading) {
+                if (collecting) break;
+                if (/^summary$/i.test(heading[1].trim())) collecting = true;
+                continue;
+              }
+              if (collecting) section.push(line);
+            }
+            // Drop the template hint comments, then trim the edges.
+            process.stdout.write(section.join("\n").replace(/<!--[\s\S]*?-->/g, "").trim());
+          ')"
+
+          if [ -z "${NOTES}" ]; then
+            echo "::notice::PR #${PR_NUMBER} has an empty Summary section; using its title as the release notes."
+            NOTES="${PR_TITLE}"
+          fi
+
+          # Keep the compare link under the curated notes whenever a previous
+          # release exists to link back to.
+          NOTES_FILE="$(mktemp)"
+          PREVIOUS_TAG="$(gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=1" --jq '.[0].tag_name' || true)"
+          if [ -n "${PREVIOUS_TAG}" ] && [ "${PREVIOUS_TAG}" != "v${RELEASE_VERSION}" ]; then
+            printf '%s\n\n**Full Changelog**: https://github.com/%s/compare/%s...v%s\n' \
+              "${NOTES}" "${GITHUB_REPOSITORY}" "${PREVIOUS_TAG}" "${RELEASE_VERSION}" > "${NOTES_FILE}"
+          else
+            printf '%s\n' "${NOTES}" > "${NOTES_FILE}"
+          fi
+
+          echo "Release notes for v${RELEASE_VERSION}:"
+          cat "${NOTES_FILE}"
+
+          gh release create "v${RELEASE_VERSION}" \
+            --title "v${RELEASE_VERSION}" \
+            --notes-file "${NOTES_FILE}" \
             --verify-tag \
             src-tauri/target/release/bundle/dmg/*.dmg \
             src-tauri/target/release/bundle/macos/*.app.tar.gz \
             src-tauri/target/release/bundle/macos/*.app.tar.gz.sig
+          rm -f "${NOTES_FILE}"
 
       - name: Attach updater manifest (latest.json)
         env:
