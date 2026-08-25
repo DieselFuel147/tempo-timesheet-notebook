@@ -1,17 +1,18 @@
 use crate::state::{NotebookBlock, WorklogInput};
 
-// Pseudo-ticket marking a lunch break. Must stay aligned with `LUNCH_TICKET_ID`
-// in shared/notebook.ts: it renders like any other entry so the user can see
-// the midday gap is accounted for, but it is purely visual — never validated as
-// a Jira key, never pushed to Tempo, never counted in totals.
-pub const LUNCH_TICKET_ID: &str = "LUNCH";
+// Pseudo-ticket marking untracked time — lunch breaks, personal errands, any
+// non-work gap the user wants visible. Must stay aligned with
+// `UNTRACKED_TICKET_ID` in shared/notebook.ts: it renders like any other entry
+// but is purely visual — never validated as a Jira key, never pushed to Tempo,
+// never counted in totals.
+pub const UNTRACKED_TICKET_ID: &str = "UNTRACKED";
 
-pub fn is_lunch_ticket_id(ticket_id: &str) -> bool {
-    ticket_id.trim().eq_ignore_ascii_case(LUNCH_TICKET_ID)
+pub fn is_untracked_ticket_id(ticket_id: &str) -> bool {
+    ticket_id.trim().eq_ignore_ascii_case(UNTRACKED_TICKET_ID)
 }
 
-pub fn is_lunch_block(block: &NotebookBlock) -> bool {
-    is_lunch_ticket_id(&block.ticket_id)
+pub fn is_untracked_block(block: &NotebookBlock) -> bool {
+    is_untracked_ticket_id(&block.ticket_id)
 }
 
 // Must stay textually aligned with `autoSummary` in shared/notebook.ts:

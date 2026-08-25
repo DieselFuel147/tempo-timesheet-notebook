@@ -164,7 +164,7 @@ export function ActivityLogPage({ entries, onClose }: Props) {
             Activity Log
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            Tempo dry runs, pushes, and notebook errors from this session — newest first.
+            Tempo dry runs, pushes, and notebook errors from this session - newest first.
           </Typography>
         </Box>
       </Stack>

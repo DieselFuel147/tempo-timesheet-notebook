@@ -69,7 +69,7 @@ export function useInactivityPrompt({
       const idleMinutes = Math.max(0, Math.round((now.getTime() - lastActivityRef.current) / 60_000))
       const sent = await sendReminder({
         title: 'Timesheet reminder',
-        body: `No activity for ${formatHours(idleMinutes)} — update your time entries.`,
+        body: `No activity for ${formatHours(idleMinutes)} - update your time entries.`,
       })
       if (sent && !cancelled) lastPromptedAtRef.current = Date.now()
     }

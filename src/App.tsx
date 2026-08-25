@@ -4,7 +4,7 @@ import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 import ViewTimelineIcon from '@mui/icons-material/ViewTimeline'
 import type { JiraProfile } from '@shared/types'
 import { cloneSettings, defaultSettings, type Settings as AppSettings } from '@shared/settings'
-import { isLunchBlock, isPersistedNotebookBlock, type TruncatedSummaryEntry } from '@shared/notebook'
+import { isPersistedNotebookBlock, isUntrackedBlock, type TruncatedSummaryEntry } from '@shared/notebook'
 import { validateNotebookDay, type ValidationIssue } from '@shared/validation'
 import { api } from '@app/api'
 import { isPushableBlock } from '@app/features/sync/syncStatus'
@@ -285,10 +285,10 @@ export function App() {
       }, 0),
     [weekMonday, weekDays, date, day, nowMinute, tick],
   )
-  // Lunch entries persist but stay invisible to every stat: not tracked time,
-  // not a ticket, never pushable (isPushableBlock already excludes them).
+  // Untracked entries persist but stay invisible to every stat: not tracked
+  // time, not a ticket, never pushable (isPushableBlock already excludes them).
   const trackedCount = useMemo(
-    () => (day?.blocks ?? []).filter((block) => isPersistedNotebookBlock(block) && !isLunchBlock(block)).length,
+    () => (day?.blocks ?? []).filter((block) => isPersistedNotebookBlock(block) && !isUntrackedBlock(block)).length,
     [day],
   )
   const pushableBlocks = useMemo(() => (day?.blocks ?? []).filter(isPushableBlock), [day])
@@ -297,7 +297,7 @@ export function App() {
   const ticketCount = useMemo(() => {
     const tickets = new Set(
       (day?.blocks ?? [])
-        .filter((block) => !isLunchBlock(block))
+        .filter((block) => !isUntrackedBlock(block))
         .map((block) => block.ticketId.trim())
         .filter((ticketId) => ticketId.length > 0),
     )
@@ -404,6 +404,7 @@ export function App() {
         adminTicket={settings.validation.adminTicket}
         issuesByBlock={issuesByBlock}
         maxSummaryChars={settings.validation.maxSummaryChars}
+        nowMinute={nowMinute}
         pulseId={linkPulse?.side === 'notebook' ? linkPulse.id : null}
         onInteract={handleNotebookInteract}
         onTextChange={handleTextChange}

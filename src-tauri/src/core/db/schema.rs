@@ -60,6 +60,11 @@ CREATE INDEX IF NOT EXISTS idx_notebook_blocks_date ON notebook_blocks(date);
     r#"
 ALTER TABLE notebook_blocks ADD COLUMN manual_end INTEGER;
 "#,
+    // The LUNCH pseudo-ticket was generalised to UNTRACKED; rewrite stored
+    // values so the code only ever needs to know the new key.
+    r#"
+UPDATE notebook_blocks SET ticket_id = 'UNTRACKED' WHERE UPPER(TRIM(ticket_id)) = 'LUNCH';
+"#,
 ];
 
 pub fn apply_migrations(connection: &mut Connection) -> rusqlite::Result<()> {

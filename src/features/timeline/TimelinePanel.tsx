@@ -3,7 +3,7 @@ import ExpandIcon from '@mui/icons-material/Expand'
 import LinkIcon from '@mui/icons-material/Link'
 import { alpha, Box, Chip, IconButton, Paper, Stack, Tooltip, Typography, useTheme } from '@mui/material'
 import type { NotebookBlock, TempoWorklog } from '@shared/types'
-import { isLunchTicketId, notebookBlockSummary } from '@shared/notebook'
+import { isUntrackedTicketId, notebookBlockSummary } from '@shared/notebook'
 import { formatHours } from '@app/dateutil'
 import { DAY_MINUTES, getTimedBlocks } from '@app/features/notebook/blockModel'
 import { toTempoWorklogViews } from '@app/features/sync/tempoViews'
@@ -84,14 +84,14 @@ export function TimelinePanel({
       const ticketId = block.ticketId.trim()
       if (!ticketId) continue
       if (!colors.has(ticketId)) {
-        // LUNCH keeps a fixed amber so it never reads as a work ticket; the
-        // rotating palette is reserved for real ones.
-        colors.set(ticketId, isLunchTicketId(ticketId) ? theme.ledger.lunchBlock : palette[nextColor % palette.length])
-        if (!isLunchTicketId(ticketId)) nextColor += 1
+        // UNTRACKED keeps a fixed grey so it never reads as a work ticket;
+        // the rotating palette is reserved for real ones.
+        colors.set(ticketId, isUntrackedTicketId(ticketId) ? theme.ledger.untrackedBlock : palette[nextColor % palette.length])
+        if (!isUntrackedTicketId(ticketId)) nextColor += 1
       }
     }
     return colors
-  }, [blocks, palette, theme.ledger.lunchBlock])
+  }, [blocks, palette, theme.ledger.untrackedBlock])
 
   const timedBlocks = useMemo(() => getTimedBlocks(blocks, nowMinute), [blocks, nowMinute])
   const tempoViews = useMemo(
@@ -495,7 +495,7 @@ export function TimelinePanel({
           const startLabel = `${String(Math.floor(view.startMinute / 60)).padStart(2, '0')}:${String(view.startMinute % 60).padStart(2, '0')}`
           const endLabel = `${String(Math.floor(view.endMinute / 60)).padStart(2, '0')}:${String(view.endMinute % 60).padStart(2, '0')}`
           const durationLabel = formatHours(view.endMinute - view.startMinute)
-          const tooltip = `${view.issueKey} · ${startLabel}–${endLabel} · ${durationLabel}${
+          const tooltip = `${view.issueKey} · ${startLabel}-${endLabel} · ${durationLabel}${
             view.description ? ` · ${view.description}` : ''
           }${view.inNotebook ? ' · in notebook' : ''}`
           return (

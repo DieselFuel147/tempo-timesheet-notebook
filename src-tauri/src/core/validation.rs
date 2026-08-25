@@ -2,7 +2,7 @@ use std::sync::OnceLock;
 
 use regex::Regex;
 
-use crate::core::notebook::is_lunch_block;
+use crate::core::notebook::is_untracked_block;
 use crate::state::NotebookBlock;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,11 +76,12 @@ pub fn validate_notebook_day(blocks: &[NotebookBlock], config: &ValidationConfig
         }
     }
 
-    // Lunch fills a visual gap but is not logged work, so the aggregate hour
-    // guards ignore it (per-entry rules above still apply to lunch blocks).
+    // Untracked time fills a visual gap but is not logged work, so the
+    // aggregate hour guards ignore it (per-entry rules above still apply to
+    // untracked blocks).
     let billable = timed
         .iter()
-        .filter(|(block, _, _)| !is_lunch_block(block))
+        .filter(|(block, _, _)| !is_untracked_block(block))
         .collect::<Vec<_>>();
     let total_hours = billable
         .iter()
@@ -128,9 +129,9 @@ pub fn validate_notebook_block(block: &NotebookBlock, config: &ValidationConfig)
             "INVALID_TICKET",
             "Ticket is required (e.g. ABC-123).".into(),
         );
-    } else if !is_lunch_block(block) && !config.ticket_pattern.is_match(key) {
-        // LUNCH is the one non-Jira key allowed through; every other rule below
-        // still applies to lunch entries.
+    } else if !is_untracked_block(block) && !config.ticket_pattern.is_match(key) {
+        // UNTRACKED is the one non-Jira key allowed through; every other rule
+        // below still applies to untracked entries.
         add(
             IssueLevel::Error,
             "INVALID_TICKET",
@@ -306,17 +307,17 @@ mod tests {
     }
 
     #[test]
-    fn accepts_lunch_without_ticket_shape() {
+    fn accepts_untracked_without_ticket_shape() {
         assert_eq!(
             validate_notebook_block(
-                &block(|block| block.ticket_id = "LUNCH".into()),
+                &block(|block| block.ticket_id = "UNTRACKED".into()),
                 &default_validation_config(),
             ),
             Vec::new()
         );
         // Case-insensitive, like the uppercase-enforcing ticket input.
         assert!(validate_notebook_block(
-            &block(|block| block.ticket_id = "lunch".into()),
+            &block(|block| block.ticket_id = "untracked".into()),
             &default_validation_config(),
         )
         .iter()
@@ -324,8 +325,8 @@ mod tests {
     }
 
     #[test]
-    fn excludes_lunch_from_day_hour_totals() {
-        // 3h of work + 1h lunch: lunch must not satisfy the 4h minimum.
+    fn excludes_untracked_from_day_hour_totals() {
+        // 3h of work + 1h untracked: untracked must not satisfy the 4h minimum.
         let issues = validate_notebook_day(
             &[
                 block(|block| {
@@ -334,8 +335,8 @@ mod tests {
                     block.end_minute = Some(12 * 60);
                 }),
                 block(|block| {
-                    block.id = "lunch".into();
-                    block.ticket_id = "LUNCH".into();
+                    block.id = "untracked".into();
+                    block.ticket_id = "UNTRACKED".into();
                     block.start_minute = Some(12 * 60);
                     block.end_minute = Some(13 * 60);
                 }),
@@ -348,11 +349,11 @@ mod tests {
     }
 
     #[test]
-    fn lunch_only_day_still_warns_low() {
+    fn untracked_only_day_still_warns_low() {
         let issues = validate_notebook_day(
             &[block(|block| {
-                block.id = "lunch".into();
-                block.ticket_id = "LUNCH".into();
+                block.id = "untracked".into();
+                block.ticket_id = "UNTRACKED".into();
                 block.start_minute = Some(12 * 60);
                 block.end_minute = Some(13 * 60);
             })],
