@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { NotebookBlock } from './types'
 import {
   autoSummary,
-  isLunchBlock,
+  isUntrackedBlock,
   notebookBlockDurationMinutes,
   notebookBlockSummary,
   notebookBlockToWorklogInput,
@@ -102,16 +102,16 @@ describe('notebook helpers', () => {
     expect(truncatedAutoSummaries([block()], 500)).toEqual([])
   })
 
-  it('detects lunch pseudo-entries case-insensitively and ignores surrounding whitespace', () => {
-    expect(isLunchBlock(block({ ticketId: 'LUNCH' }))).toBe(true)
-    expect(isLunchBlock(block({ ticketId: ' lunch ' }))).toBe(true)
-    expect(isLunchBlock(block({ ticketId: 'PEA-1' }))).toBe(false)
+  it('detects untracked pseudo-entries case-insensitively and ignores surrounding whitespace', () => {
+    expect(isUntrackedBlock(block({ ticketId: 'UNTRACKED' }))).toBe(true)
+    expect(isUntrackedBlock(block({ ticketId: ' untracked ' }))).toBe(true)
+    expect(isUntrackedBlock(block({ ticketId: 'PEA-1' }))).toBe(false)
   })
 
-  it('never flags lunch blocks for summary truncation since they never push', () => {
+  it('never flags untracked blocks for summary truncation since they never push', () => {
     const longText = 'z'.repeat(600)
     const entries = truncatedAutoSummaries(
-      [block({ id: 'lunch', ticketId: 'LUNCH', text: longText })],
+      [block({ id: 'untracked', ticketId: 'UNTRACKED', text: longText })],
       100,
     )
     expect(entries).toEqual([])

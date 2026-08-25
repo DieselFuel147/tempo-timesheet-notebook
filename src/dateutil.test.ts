@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { startOfWeek, weekDates } from './dateutil'
+import {
+  complete12hDraftMinutes,
+  format12hDraft,
+  minutesTo12hTime,
+  parse12hDraftInput,
+  startOfWeek,
+  weekDates,
+} from './dateutil'
 
 describe('startOfWeek', () => {
   it('returns the same day when it is a Monday', () => {
@@ -38,5 +45,51 @@ describe('weekDates', () => {
     const sunday = weekDates('2026-08-30')
     expect(sunday).toContain('2026-08-30')
     expect(startOfWeek(sunday[0])).toBe(sunday[0])
+  })
+})
+
+describe('minutesTo12hTime', () => {
+  it('formats morning, afternoon, and the twelve-o-clock edge cases', () => {
+    expect(minutesTo12hTime(9 * 60 + 45)).toBe('9:45 am')
+    expect(minutesTo12hTime(13 * 60 + 47)).toBe('1:47 pm')
+    expect(minutesTo12hTime(12 * 60 + 30)).toBe('12:30 pm')
+    expect(minutesTo12hTime(30)).toBe('12:30 am')
+  })
+
+  it('wraps minutes beyond the day', () => {
+    expect(minutesTo12hTime(24 * 60 + 90)).toBe('1:30 am')
+  })
+})
+
+describe('12h draft mask', () => {
+  it('flows digits through hour then minutes with smart hour closing', () => {
+    expect(format12hDraft(parse12hDraftInput('9'))).toBe('9:')
+    expect(format12hDraft(parse12hDraftInput('94'))).toBe('9:4')
+    expect(format12hDraft(parse12hDraftInput('09'))).toBe('09:')
+    expect(format12hDraft(parse12hDraftInput('1234'))).toBe('12:34 --')
+    // "1" waits for a possible second digit; an impossible pair rolls into minutes.
+    expect(format12hDraft(parse12hDraftInput('15'))).toBe('1:5')
+  })
+
+  it('accepts the meridiem from a or p anywhere in the entry', () => {
+    const fromSuffix = parse12hDraftInput('945p')
+    expect(fromSuffix.meridiem).toBe('pm')
+    expect(format12hDraft(fromSuffix)).toBe('9:45 pm')
+    expect(format12hDraft(parse12hDraftInput('am 945'))).toBe('9:45 am')
+  })
+
+  it('reparses its own formatted output (committed values seed edits)', () => {
+    for (const text of ['9:45 pm', '12:34 --', '09:05 am', '1:5']) {
+      expect(format12hDraft(parse12hDraftInput(text))).toBe(text)
+    }
+  })
+
+  it('commits only complete, in-range drafts', () => {
+    expect(complete12hDraftMinutes(parse12hDraftInput('945'))).toBeNull() // no meridiem
+    expect(complete12hDraftMinutes(parse12hDraftInput('94p'))).toBeNull() // minute incomplete
+    expect(complete12hDraftMinutes(parse12hDraftInput('1245 am'))).toBe(45)
+    expect(complete12hDraftMinutes(parse12hDraftInput('1245 pm'))).toBe(12 * 60 + 45)
+    expect(complete12hDraftMinutes(parse12hDraftInput('945 pm'))).toBe(21 * 60 + 45)
+    expect(complete12hDraftMinutes(parse12hDraftInput('0012 am'))).toBeNull() // hour zero
   })
 })

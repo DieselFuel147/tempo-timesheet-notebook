@@ -57,7 +57,7 @@ export function AppHeader({ profile, clockLabel, isLiveTyping, updateVersion, on
             </Typography>
           </Stack>
           {updateVersion && (
-            <Tooltip title={`Version ${updateVersion} is available — open settings to install it`} arrow>
+            <Tooltip title={`Version ${updateVersion} is available - open settings to install it`} arrow>
               <IconButton color="inherit" size="small" onClick={onOpenSettings} aria-label={`Update to version ${updateVersion} available`}>
                 <Badge color="warning" variant="dot" overlap="circular">
                   <SystemUpdateAltIcon fontSize="small" />
@@ -65,7 +65,7 @@ export function AppHeader({ profile, clockLabel, isLiveTyping, updateVersion, on
               </IconButton>
             </Tooltip>
           )}
-          <Tooltip title="Activity log — recent dry runs and pushes" arrow>
+          <Tooltip title="Activity log - recent dry runs and pushes" arrow>
             <IconButton color="inherit" size="small" onClick={onOpenLog} aria-label="Activity log">
               <TextSnippetIcon fontSize="small" />
             </IconButton>

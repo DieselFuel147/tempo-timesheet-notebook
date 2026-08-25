@@ -30,9 +30,9 @@ describe('isPushableBlock', () => {
     expect(isPushableBlock(block({ text: '', summaryOverride: 'Manual summary' }))).toBe(true)
   })
 
-  it('never considers lunch entries pushable', () => {
-    expect(isPushableBlock(block({ ticketId: 'LUNCH' }))).toBe(false)
-    expect(isPushableBlock(block({ ticketId: 'lunch' }))).toBe(false)
+  it('never considers untracked entries pushable', () => {
+    expect(isPushableBlock(block({ ticketId: 'UNTRACKED' }))).toBe(false)
+    expect(isPushableBlock(block({ ticketId: 'untracked' }))).toBe(false)
   })
 })
 

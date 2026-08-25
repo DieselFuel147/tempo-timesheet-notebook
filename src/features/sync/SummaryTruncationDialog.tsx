@@ -148,7 +148,7 @@ export function SummaryTruncationDialog({
                     color="success"
                     variant="outlined"
                     icon={<CheckCircleIcon />}
-                    label={editDiffers ? 'Confirmed with your edited summary' : 'Confirmed — upload truncated'}
+                    label={editDiffers ? 'Confirmed with your edited summary' : 'Confirmed - upload truncated'}
                   />
                 ) : (
                   <>

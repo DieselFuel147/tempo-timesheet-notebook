@@ -34,8 +34,8 @@ interface LedgerTokens {
   gapStripe: string
   pinBorder: string
   ticketBadgeBg: string
-  /** Fixed fill for LUNCH blocks — deliberately outside the rotating palette. */
-  lunchBlock: string
+  /** Fixed fill for UNTRACKED blocks — deliberately outside the rotating palette. */
+  untrackedBlock: string
   headerCaption: string
   footerAccent: string
 }
@@ -55,7 +55,7 @@ const ledgerTokensByMode: Record<ThemeMode, LedgerTokens> = {
     gapStripe: '#C99089',
     pinBorder: '#F4F5EF',
     ticketBadgeBg: 'rgba(31,43,34,0.35)',
-    lunchBlock: '#A9722C',
+    untrackedBlock: '#909090',
     headerCaption: '#B9C7BC',
     footerAccent: '#E7C9BF',
   },
@@ -73,7 +73,7 @@ const ledgerTokensByMode: Record<ThemeMode, LedgerTokens> = {
     gapStripe: '#8A5F58',
     pinBorder: '#12130F',
     ticketBadgeBg: 'rgba(0,0,0,0.4)',
-    lunchBlock: '#C89B55',
+    untrackedBlock: '#909090',
     headerCaption: '#8FA394',
     footerAccent: '#D8A99E',
   },

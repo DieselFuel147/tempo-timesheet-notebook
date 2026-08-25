@@ -1,5 +1,5 @@
 import type { NotebookBlock } from './types'
-import { isLunchBlock, notebookBlockDurationMinutes } from './notebook'
+import { isUntrackedBlock, notebookBlockDurationMinutes } from './notebook'
 
 // Pure validation, shared by the browser (live feedback as you type) and the
 // server (the gate that runs again before anything is pushed to Tempo — the
@@ -85,9 +85,9 @@ export function validateNotebookBlock(
   const key = block.ticketId.trim()
   if (!key) {
     add('error', 'INVALID_TICKET', 'Ticket is required (e.g. ABC-123).')
-  } else if (!isLunchBlock(block) && !config.ticketPattern.test(key)) {
-    // LUNCH is the one non-Jira key allowed through; every other rule below
-    // still applies to lunch entries.
+  } else if (!isUntrackedBlock(block) && !config.ticketPattern.test(key)) {
+    // UNTRACKED is the one non-Jira key allowed through; every other rule
+    // below still applies to untracked entries.
     add('error', 'INVALID_TICKET', `"${block.ticketId}" is not a valid ticket key (expected e.g. ABC-123).`)
   }
 
@@ -116,10 +116,10 @@ export function validateNotebookBlock(
         add('error', 'BAD_RANGE', `End (${block.endMinute}) must be after start (${block.startMinute}).`)
       } else {
         if (duration < config.minEntryMinutes) {
-          add('warning', 'TOO_SHORT', `Only ${duration} min — shorter than ${config.minEntryMinutes} min.`)
+          add('warning', 'TOO_SHORT', `Only ${duration} min - shorter than ${config.minEntryMinutes} min.`)
         }
         if (duration > config.maxEntryHours * 60) {
-          add('warning', 'TOO_LONG', `${(duration / 60).toFixed(2)}h in one block — over ${config.maxEntryHours}h.`)
+          add('warning', 'TOO_LONG', `${(duration / 60).toFixed(2)}h in one block - over ${config.maxEntryHours}h.`)
         }
       }
     }
@@ -134,7 +134,7 @@ export function validateNotebookBlock(
     add('warning', 'LATE', `Ends after normal hours (${fmtMin(config.workdayEndMin)}).`)
   }
 
-  if (!block.text.trim()) add('warning', 'NO_TEXT', 'No note text — add detail for what you did.')
+  if (!block.text.trim()) add('warning', 'NO_TEXT', 'No note text - add detail for what you did.')
 
   return issues
 }
@@ -163,9 +163,10 @@ export function validateNotebookDay(
     }
   }
 
-  // Lunch fills a visual gap but is not logged work, so the aggregate hour
-  // guards ignore it (per-entry rules above still apply to lunch blocks).
-  const billableTimed = closedTimed.filter((x) => !isLunchBlock(x.block))
+  // Untracked time fills a visual gap but is not logged work, so the
+  // aggregate hour guards ignore it (per-entry rules above still apply to
+  // untracked blocks).
+  const billableTimed = closedTimed.filter((x) => !isUntrackedBlock(x.block))
   const totalHours = billableTimed.reduce((sum, x) => sum + (x.e - x.s), 0) / 60
   if (closedTimed.length > 0 && totalHours < config.minDayHours) {
     issues.push({ level: 'warning', code: 'DAY_LOW', message: `Only ${totalHours.toFixed(2)}h logged (under ${config.minDayHours}h).` })

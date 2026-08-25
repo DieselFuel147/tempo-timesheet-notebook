@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import PsychologyIcon from '@mui/icons-material/Psychology'
 import { api } from '@app/api'
 import { Autocomplete, Box, TextField, useTheme } from '@mui/material'
-import { LUNCH_TICKET_ID } from '@shared/notebook'
+import { UNTRACKED_TICKET_ID } from '@shared/notebook'
 import { MONO_FONT } from '@app/theme'
 
 interface Props {
@@ -19,12 +19,13 @@ interface TicketOption {
   label: string
 }
 
-// Pinned to the top of every suggestion list so logging lunch is always one
-// click away; the key itself bypasses ticket-shape validation and never syncs.
-const LUNCH_OPTION: TicketOption = {
-  key: LUNCH_TICKET_ID,
-  summary: 'Lunch break — kept local, never pushed',
-  label: `${LUNCH_TICKET_ID} — Lunch break — kept local, never pushed`,
+// Pinned to the top of every suggestion list so logging untracked time is
+// always one click away; the key itself bypasses ticket-shape validation and
+// never syncs.
+const UNTRACKED_OPTION: TicketOption = {
+  key: UNTRACKED_TICKET_ID,
+  summary: 'Untracked time - kept local, never pushed',
+  label: `${UNTRACKED_TICKET_ID} - Untracked time - kept local, never pushed`,
 }
 
 // Ticket input with debounced Jira autocomplete. Turns red when the value is
@@ -41,9 +42,9 @@ export function TicketField({ value, invalid, adminTicket, onChange, onAdmin }: 
       api
         .tickets(value.trim())
         .then((list) =>
-          setOptions([LUNCH_OPTION, ...list.slice(0, 8).map((s) => ({ ...s, label: `${s.key} — ${s.summary}` }))]),
+          setOptions([UNTRACKED_OPTION, ...list.slice(0, 8).map((s) => ({ ...s, label: `${s.key} - ${s.summary}` }))]),
         )
-        .catch(() => setOptions([LUNCH_OPTION]))
+        .catch(() => setOptions([UNTRACKED_OPTION]))
         .finally(() => setLoading(false))
     }, 250)
     return () => clearTimeout(handle)
@@ -60,6 +61,13 @@ export function TicketField({ value, invalid, adminTicket, onChange, onAdmin }: 
         options={options}
         loading={loading}
         filterOptions={(x) => x}
+        // Widen the suggestion box past the field so
+        // longer summaries stay readable.
+        slotProps={{
+          popper: {
+            style: { width: 'min(330px, calc(100vw - 48px))' },
+          },
+        }}
         onChange={(_, newValue) => {
           if (typeof newValue === 'string') {
             onChange(newValue.toUpperCase())
@@ -101,11 +109,15 @@ export function TicketField({ value, invalid, adminTicket, onChange, onAdmin }: 
         )}
         renderOption={(props, opt) => (
           <li {...props}>
-            <Box sx={{ fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace', fontSize: '0.82rem', whiteSpace: 'nowrap' }}>
-              {typeof opt === 'string' ? opt : opt.key}
-            </Box>
-            <Box sx={{ color: theme.palette.text.secondary, fontSize: '0.82rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {typeof opt === 'string' ? '' : opt.summary}
+            {/* Own flex row with a gap so the key never runs into the summary;
+                minWidth lets the summary ellipsize instead of overflowing. */}
+            <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1, width: '100%', minWidth: 0 }}>
+              <Box sx={{ fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace', fontSize: '0.82rem', whiteSpace: 'nowrap' }}>
+                {typeof opt === 'string' ? opt : opt.key}
+              </Box>
+              <Box sx={{ color: theme.palette.text.secondary, fontSize: '0.82rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {typeof opt === 'string' ? '' : opt.summary}
+              </Box>
             </Box>
           </li>
         )}

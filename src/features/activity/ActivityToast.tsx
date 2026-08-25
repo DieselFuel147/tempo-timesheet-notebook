@@ -54,7 +54,7 @@ export function ActivityToast({ entry, onClose, onOpenLog }: Props) {
               {descriptor.title}
             </Typography>
             <Typography variant="caption" component="div" sx={{ display: 'block' }}>
-              {descriptor.detail} — click to view the log
+              {descriptor.detail} - click to view the log
             </Typography>
           </Box>
         </Alert>

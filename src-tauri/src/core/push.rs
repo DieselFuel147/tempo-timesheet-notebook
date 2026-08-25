@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use async_trait::async_trait;
 
-use crate::core::notebook::{is_lunch_block, notebook_block_summary, notebook_block_to_worklog_input};
+use crate::core::notebook::{is_untracked_block, notebook_block_summary, notebook_block_to_worklog_input};
 use crate::core::settings::to_validation_config;
 use crate::core::validation::{validate_notebook_day, IssueLevel};
 use crate::error::AppError;
@@ -190,9 +190,9 @@ fn validation_blockers(blocks: &[NotebookBlock], settings: &Settings) -> Vec<Str
 }
 
 fn pushable_block(block: &NotebookBlock, max_summary_chars: usize) -> bool {
-    // LUNCH entries are visual gap-fillers: they must never be validated for
-    // push, resolved against Jira, or sent to Tempo.
-    !is_lunch_block(block)
+    // UNTRACKED entries are visual gap-fillers: they must never be validated
+    // for push, resolved against Jira, or sent to Tempo.
+    !is_untracked_block(block)
         && block.closed
         && block.start_minute.is_some()
         && block.end_minute.is_some()
@@ -630,11 +630,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn never_pushes_lunch_entries() {
+    async fn never_pushes_untracked_entries() {
         let repo = FakeRepo::new(vec![
             block(|block| {
-                block.id = "lunch".into();
-                block.ticket_id = "LUNCH".into();
+                block.id = "untracked".into();
+                block.ticket_id = "UNTRACKED".into();
                 block.start_minute = Some(12 * 60);
                 block.end_minute = Some(12 * 60 + 30);
                 block.text = String::from("Lunch");
@@ -653,7 +653,7 @@ mod tests {
         };
 
         // Dry run first (it mutates nothing): only the real entry is planned,
-        // lunch isn't even counted as skipped pushable work.
+        // untracked time isn't even counted as skipped pushable work.
         let dry: DryRunSummary = dry_run_day("2025-05-09", &jira, &tempo, &repo).await.unwrap();
         assert_eq!(dry.planned.len(), 1);
         assert_eq!(dry.planned[0].ticket_id, "PEA-777");

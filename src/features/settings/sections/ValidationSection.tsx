@@ -46,14 +46,14 @@ export function ValidationSection({ validation, onChange }: Props) {
 
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
           <TextField
-            label="Normal hours — start"
+            label="Normal hours - start"
             type="time"
             value={minutesToHHmm(validation.workdayStartMin)}
             onChange={time('workdayStartMin')}
             fullWidth
           />
           <TextField
-            label="Normal hours — end"
+            label="Normal hours - end"
             type="time"
             value={minutesToHHmm(validation.workdayEndMin)}
             onChange={time('workdayEndMin')}
