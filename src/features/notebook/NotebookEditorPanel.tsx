@@ -15,7 +15,7 @@ import {
   useTheme,
 } from '@mui/material'
 import type { NotebookBlock } from '@shared/types'
-import { autoSummary, isLunchBlock, isPersistedNotebookBlock } from '@shared/notebook'
+import { autoSummary, isPersistedNotebookBlock, isUntrackedBlock } from '@shared/notebook'
 import type { ValidationIssue } from '@shared/validation'
 import {
   complete12hDraftMinutes,
@@ -269,8 +269,8 @@ export const NotebookEditorPanel = memo(function NotebookEditorPanel({
           const isReopenable = block.id === activeReopenableId
           const isLive = block.id === activeStartedId
           const syncChip = blockSyncLabel(block)
-          // LUNCH keeps the fixed amber so it reads as non-work in both panels.
-          const accent = isLunchBlock(block) ? theme.ledger.lunchBlock : blockColorMap.get(block.id) ?? null
+          // UNTRACKED keeps the fixed grey so it reads as non-work in both panels.
+          const accent = isUntrackedBlock(block) ? theme.ledger.untrackedBlock : blockColorMap.get(block.id) ?? null
           const isPulsing = pulseId === block.id
 
           return (

@@ -1,5 +1,5 @@
 import type { NotebookBlock, NotebookDay } from '@shared/types'
-import { isLunchBlock, notebookBlockSummary } from '@shared/notebook'
+import { isUntrackedBlock, notebookBlockSummary } from '@shared/notebook'
 import { todayISO } from '@app/dateutil'
 
 export const DAY_MINUTES = 24 * 60
@@ -122,10 +122,10 @@ export function blockDuration(block: NotebookBlock, nowMinute: number): number |
 }
 
 /** Sum of all positive block durations, with open blocks counting up to nowMinute.
- * Lunch blocks are visual gap-fillers and never count as tracked time. */
+ * Untracked blocks are visual gap-fillers and never count as tracked time. */
 export function totalTrackedMinutes(blocks: NotebookBlock[], nowMinute: number): number {
   return blocks.reduce((sum, block) => {
-    if (isLunchBlock(block)) return sum
+    if (isUntrackedBlock(block)) return sum
     const duration = blockDuration(block, nowMinute)
     return sum + (duration && duration > 0 ? duration : 0)
   }, 0)

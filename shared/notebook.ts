@@ -26,17 +26,18 @@ export function isPersistedNotebookBlock(block: NotebookBlock): boolean {
   return block.startMinute !== null || block.text.trim().length > 0 || block.ticketId.trim().length > 0
 }
 
-// Pseudo-ticket marking a lunch break. It renders like any other entry so the
-// user can see the midday gap is accounted for, but it is purely visual: never
-// validated as a Jira key, never pushed to Tempo, never counted in totals.
-export const LUNCH_TICKET_ID = 'LUNCH'
+// Pseudo-ticket marking untracked time — lunch breaks, personal errands, any
+// non-work gap the user wants visible. It renders like any other entry but is
+// purely visual: never validated as a Jira key, never pushed to Tempo, never
+// counted in totals.
+export const UNTRACKED_TICKET_ID = 'UNTRACKED'
 
-export function isLunchTicketId(ticketId: string): boolean {
-  return ticketId.trim().toUpperCase() === LUNCH_TICKET_ID
+export function isUntrackedTicketId(ticketId: string): boolean {
+  return ticketId.trim().toUpperCase() === UNTRACKED_TICKET_ID
 }
 
-export function isLunchBlock(block: Pick<NotebookBlock, 'ticketId'>): boolean {
-  return isLunchTicketId(block.ticketId)
+export function isUntrackedBlock(block: Pick<NotebookBlock, 'ticketId'>): boolean {
+  return isUntrackedTicketId(block.ticketId)
 }
 
 export function notebookBlockToWorklogInput(
@@ -76,8 +77,8 @@ export interface TruncatedSummaryEntry {
 
 // Entries that a push would send with a truncated auto summary. Filters mirror
 // the backend's push loop: closed + timed blocks, not already synced, no
-// summary override (overrides are never truncated). Lunch entries are never
-// pushed, so they can't appear here either.
+// summary override (overrides are never truncated). Untracked entries are
+// never pushed, so they can't appear here either.
 export function truncatedAutoSummaries(
   blocks: NotebookBlock[],
   maxSummaryChars: number,
@@ -86,7 +87,7 @@ export function truncatedAutoSummaries(
   for (const block of blocks) {
     if (!block.closed || block.startMinute === null || block.endMinute === null) continue
     if (block.tempoWorklogId != null) continue // synced — a push skips it
-    if (isLunchBlock(block)) continue // lunch — never pushed at all
+    if (isUntrackedBlock(block)) continue // untracked — never pushed at all
     if (block.summaryOverride?.trim()) continue
     const original = block.text.trim()
     if (original.length <= maxSummaryChars) continue

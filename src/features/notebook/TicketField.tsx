@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import PsychologyIcon from '@mui/icons-material/Psychology'
 import { api } from '@app/api'
 import { Autocomplete, Box, TextField, useTheme } from '@mui/material'
-import { LUNCH_TICKET_ID } from '@shared/notebook'
+import { UNTRACKED_TICKET_ID } from '@shared/notebook'
 import { MONO_FONT } from '@app/theme'
 
 interface Props {
@@ -19,12 +19,13 @@ interface TicketOption {
   label: string
 }
 
-// Pinned to the top of every suggestion list so logging lunch is always one
-// click away; the key itself bypasses ticket-shape validation and never syncs.
-const LUNCH_OPTION: TicketOption = {
-  key: LUNCH_TICKET_ID,
-  summary: 'Lunch break — kept local, never pushed',
-  label: `${LUNCH_TICKET_ID} — Lunch break — kept local, never pushed`,
+// Pinned to the top of every suggestion list so logging untracked time is
+// always one click away; the key itself bypasses ticket-shape validation and
+// never syncs.
+const UNTRACKED_OPTION: TicketOption = {
+  key: UNTRACKED_TICKET_ID,
+  summary: 'Untracked time - kept local, never pushed',
+  label: `${UNTRACKED_TICKET_ID} - Untracked time - kept local, never pushed`,
 }
 
 // Ticket input with debounced Jira autocomplete. Turns red when the value is
@@ -41,9 +42,9 @@ export function TicketField({ value, invalid, adminTicket, onChange, onAdmin }: 
       api
         .tickets(value.trim())
         .then((list) =>
-          setOptions([LUNCH_OPTION, ...list.slice(0, 8).map((s) => ({ ...s, label: `${s.key} — ${s.summary}` }))]),
+          setOptions([UNTRACKED_OPTION, ...list.slice(0, 8).map((s) => ({ ...s, label: `${s.key} - ${s.summary}` }))]),
         )
-        .catch(() => setOptions([LUNCH_OPTION]))
+        .catch(() => setOptions([UNTRACKED_OPTION]))
         .finally(() => setLoading(false))
     }, 250)
     return () => clearTimeout(handle)
