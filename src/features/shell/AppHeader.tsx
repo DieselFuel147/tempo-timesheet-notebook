@@ -1,4 +1,5 @@
 import AccessTimeIcon from '@mui/icons-material/AccessTime'
+import AutoStoriesIcon from '@mui/icons-material/AutoStories'
 import SettingsIcon from '@mui/icons-material/Settings'
 import SystemUpdateAltIcon from '@mui/icons-material/SystemUpdateAlt'
 import TextSnippetIcon from '@mui/icons-material/TextSnippet'
@@ -15,11 +16,12 @@ interface Props {
   clockLabel: string
   isLiveTyping: boolean
   updateVersion: string | null
+  onOpenGuide: () => void
   onOpenLog: () => void
   onOpenSettings: () => void
 }
 
-export function AppHeader({ profile, clockLabel, isLiveTyping, updateVersion, onOpenLog, onOpenSettings }: Props) {
+export function AppHeader({ profile, clockLabel, isLiveTyping, updateVersion, onOpenGuide, onOpenLog, onOpenSettings }: Props) {
   const theme = useTheme()
   return (
     <AppBar position="static" elevation={0} sx={{ bgcolor: theme.ledger.barBg, color: theme.ledger.barText }}>
@@ -56,6 +58,11 @@ export function AppHeader({ profile, clockLabel, isLiveTyping, updateVersion, on
               {isLiveTyping ? 'logging' : 'idle'}
             </Typography>
           </Stack>
+          <Tooltip title="User guide" arrow>
+            <IconButton color="inherit" size="small" onClick={onOpenGuide} aria-label="User guide">
+              <AutoStoriesIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
           {updateVersion && (
             <Tooltip title={`Version ${updateVersion} is available - open settings to install it`} arrow>
               <IconButton color="inherit" size="small" onClick={onOpenSettings} aria-label={`Update to version ${updateVersion} available`}>
