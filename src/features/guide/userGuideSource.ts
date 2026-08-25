@@ -4,3 +4,10 @@
 import guideMarkdown from '../../../docs/user-guide.md?raw'
 
 export const USER_GUIDE_MARKDOWN: string = guideMarkdown
+
+// ?raw modules aren't reliably wired into HMR, so an edited guide would
+// otherwise keep serving stale text until a manual reload. Accept the update
+// and take the cheap way out: one full window reload in dev.
+if (import.meta.hot) {
+  import.meta.hot.accept(() => window.location.reload())
+}

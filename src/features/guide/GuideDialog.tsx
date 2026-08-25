@@ -327,11 +327,13 @@ export function GuideDialog({ open, initialSectionId, onClose }: Props) {
           onScroll={handleContentScroll}
           sx={{ flex: 1, minWidth: 0, overflowY: 'auto', position: 'relative', px: 3.5, pb: 4 }}
         >
-          {doc.title.length > 0 && doc.sections.length > 0 && (
+          {doc.title.length > 0 && (doc.preamble.length > 0 || doc.sections.length > 0) && (
             <Typography variant="overline" color="text.secondary" sx={{ display: 'block', mt: 2 }}>
               {doc.title}
             </Typography>
           )}
+          {/* Intro copy and callouts that sit above the first H2 in the markdown. */}
+          {doc.preamble.map((block, index) => renderBlock(block, `preamble-${index}`))}
           {doc.sections.length === 0 ? (
             <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
               The guide file is empty - add sections to docs/user-guide.md.

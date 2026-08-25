@@ -9,6 +9,29 @@ import {
 } from './guideModel'
 
 describe('parseUserGuide', () => {
+  it('captures pre-section content as the document preamble instead of dropping it', () => {
+    const doc = parseUserGuide(
+      '# Guide\n\nIntro sentence.\n\n> **Tip:** Top of page advice.\n\n## Section\n\nBody.',
+    )
+    expect(doc.preamble.map((block) => block.kind)).toEqual(['paragraph', 'callout'])
+    expect(doc.preamble[0]).toMatchObject({
+      kind: 'paragraph',
+      segments: [{ text: 'Intro sentence.', style: 'plain' }],
+    })
+    if (doc.preamble[1].kind === 'callout') {
+      expect(doc.preamble[1].tone).toBe('tip')
+      expect(plainText(doc.preamble[1].segments)).toBe('Top of page advice.')
+    }
+    // The preamble must not leak into the first section.
+    expect(doc.sections[0].blocks.map((block) => block.kind)).toEqual(['paragraph'])
+  })
+
+  it('keeps bullets and sub-headings in the preamble when they precede any section', () => {
+    const doc = parseUserGuide('# G\n\n- setup step\n\n### Early detail\n\ndeep text\n\n## Real')
+    expect(doc.preamble.map((block) => block.kind)).toEqual(['bullets', 'heading', 'paragraph'])
+    expect(doc.sections).toHaveLength(1)
+  })
+
   it('extracts the document title and one section per H2 with slug ids', () => {
     const doc = parseUserGuide('# My Guide\n\nIntro text.\n\n## First Section\n\nBody.\n\n## Second Section\n\nMore.')
     expect(doc.title).toBe('My Guide')
