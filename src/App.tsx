@@ -66,7 +66,7 @@ const NO_IDS: ReadonlySet<string> = new Set()
 // Usage hints for the Timeline panel, surfaced via the header info icon so the
 // body stays compact. Kept verbatim from the former always-visible caption.
 const TIMELINE_HINT =
-  'Tap a closed block to reveal drag pins, gap absorb controls, and merge actions. Click a blank space to create a new entry. Click and drag a block to move it. Shared ticket IDs keep the same color and connect across the timeline. Skinny bars on the right are worklogs already in Tempo.'
+  'Tap a closed block to reveal drag pins, gap absorb controls, and merge actions. Double click a blank space to create a new entry. Click and drag a block to move it. Shared ticket IDs keep the same color and connect across the timeline. Skinny bars on the right are worklogs already in Tempo.'
 
 type View = 'main' | 'settings' | 'log'
 
