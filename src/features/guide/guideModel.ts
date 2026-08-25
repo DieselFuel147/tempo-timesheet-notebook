@@ -39,6 +39,8 @@ export interface GuideSection {
 
 export interface GuideDoc {
   title: string
+  /** Blocks between the H1 title and the first H2 — rendered above all sections. */
+  preamble: GuideBlock[]
   sections: GuideSection[]
 }
 
@@ -134,18 +136,23 @@ export function parseUserGuide(markdown: string): GuideDoc {
   const sectionIds = new IdAllocator()
   const anchorIds = new IdAllocator()
   const sections: GuideSection[] = []
+  const preamble: GuideBlock[] = []
   let title = ''
   let paragraphBuffer: string[] = []
   // Bullets are accumulated until a non-bullet line so consecutive `- ` lines
   // collapse into one list block instead of one block per bullet.
   let bulletsBuffer: InlineSegment[][] | null = null
 
+  // Content before the first H2 belongs to the document preamble (shown under
+  // the title) rather than being silently dropped.
+  const targetBlocks = () => (sections.length > 0 ? sections[sections.length - 1].blocks : preamble)
+
   const flushParagraph = () => {
-    if (paragraphBuffer.length === 0 || sections.length === 0) {
+    if (paragraphBuffer.length === 0) {
       paragraphBuffer = []
       return
     }
-    sections[sections.length - 1].blocks.push({
+    targetBlocks().push({
       kind: 'paragraph',
       segments: parseInlineSegments(paragraphBuffer.join(' ').trim()),
     })
@@ -153,11 +160,11 @@ export function parseUserGuide(markdown: string): GuideDoc {
   }
 
   const flushBullets = () => {
-    if (!bulletsBuffer || sections.length === 0) {
+    if (!bulletsBuffer) {
       bulletsBuffer = null
       return
     }
-    sections[sections.length - 1].blocks.push({ kind: 'bullets', items: bulletsBuffer })
+    targetBlocks().push({ kind: 'bullets', items: bulletsBuffer })
     bulletsBuffer = null
   }
 
@@ -172,7 +179,7 @@ export function parseUserGuide(markdown: string): GuideDoc {
     if (/^###\s+/.test(line)) {
       flushAll()
       const text = line.replace(/^###\s+/, '').trim()
-      sections[sections.length - 1]?.blocks.push({
+      targetBlocks().push({
         kind: 'heading',
         id: anchorIds.allocate(text),
         segments: parseInlineSegments(text),
@@ -206,7 +213,7 @@ export function parseUserGuide(markdown: string): GuideDoc {
       }
       i -= 1
       if (quoted.some((entry) => entry.length > 0)) {
-        sections[sections.length - 1]?.blocks.push(parseCallout(quoted.filter(Boolean)))
+        targetBlocks().push(parseCallout(quoted.filter(Boolean)))
       }
       continue
     }
@@ -221,7 +228,7 @@ export function parseUserGuide(markdown: string): GuideDoc {
         i += 1
       }
       i -= 1
-      sections[sections.length - 1]?.blocks.push({
+      targetBlocks().push({
         kind: 'table',
         header,
         rows,
@@ -251,7 +258,7 @@ export function parseUserGuide(markdown: string): GuideDoc {
     section.summary = deriveSummary(section.blocks)
   }
 
-  return { title, sections }
+  return { title, preamble, sections }
 }
 
 export interface GuideSearchHit {
