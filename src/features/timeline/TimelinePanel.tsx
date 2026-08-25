@@ -495,7 +495,7 @@ export function TimelinePanel({
           const startLabel = `${String(Math.floor(view.startMinute / 60)).padStart(2, '0')}:${String(view.startMinute % 60).padStart(2, '0')}`
           const endLabel = `${String(Math.floor(view.endMinute / 60)).padStart(2, '0')}:${String(view.endMinute % 60).padStart(2, '0')}`
           const durationLabel = formatHours(view.endMinute - view.startMinute)
-          const tooltip = `${view.issueKey} · ${startLabel}–${endLabel} · ${durationLabel}${
+          const tooltip = `${view.issueKey} · ${startLabel}-${endLabel} · ${durationLabel}${
             view.description ? ` · ${view.description}` : ''
           }${view.inNotebook ? ' · in notebook' : ''}`
           return (

@@ -61,6 +61,13 @@ export function TicketField({ value, invalid, adminTicket, onChange, onAdmin }: 
         options={options}
         loading={loading}
         filterOptions={(x) => x}
+        // Widen the suggestion box past the field so
+        // longer summaries stay readable.
+        slotProps={{
+          popper: {
+            style: { width: 'min(330px, calc(100vw - 48px))' },
+          },
+        }}
         onChange={(_, newValue) => {
           if (typeof newValue === 'string') {
             onChange(newValue.toUpperCase())
@@ -102,11 +109,15 @@ export function TicketField({ value, invalid, adminTicket, onChange, onAdmin }: 
         )}
         renderOption={(props, opt) => (
           <li {...props}>
-            <Box sx={{ fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace', fontSize: '0.82rem', whiteSpace: 'nowrap' }}>
-              {typeof opt === 'string' ? opt : opt.key}
-            </Box>
-            <Box sx={{ color: theme.palette.text.secondary, fontSize: '0.82rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {typeof opt === 'string' ? '' : opt.summary}
+            {/* Own flex row with a gap so the key never runs into the summary;
+                minWidth lets the summary ellipsize instead of overflowing. */}
+            <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1, width: '100%', minWidth: 0 }}>
+              <Box sx={{ fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace', fontSize: '0.82rem', whiteSpace: 'nowrap' }}>
+                {typeof opt === 'string' ? opt : opt.key}
+              </Box>
+              <Box sx={{ color: theme.palette.text.secondary, fontSize: '0.82rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {typeof opt === 'string' ? '' : opt.summary}
+              </Box>
             </Box>
           </li>
         )}

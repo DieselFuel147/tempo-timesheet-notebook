@@ -116,10 +116,10 @@ export function validateNotebookBlock(
         add('error', 'BAD_RANGE', `End (${block.endMinute}) must be after start (${block.startMinute}).`)
       } else {
         if (duration < config.minEntryMinutes) {
-          add('warning', 'TOO_SHORT', `Only ${duration} min — shorter than ${config.minEntryMinutes} min.`)
+          add('warning', 'TOO_SHORT', `Only ${duration} min - shorter than ${config.minEntryMinutes} min.`)
         }
         if (duration > config.maxEntryHours * 60) {
-          add('warning', 'TOO_LONG', `${(duration / 60).toFixed(2)}h in one block — over ${config.maxEntryHours}h.`)
+          add('warning', 'TOO_LONG', `${(duration / 60).toFixed(2)}h in one block - over ${config.maxEntryHours}h.`)
         }
       }
     }
@@ -134,7 +134,7 @@ export function validateNotebookBlock(
     add('warning', 'LATE', `Ends after normal hours (${fmtMin(config.workdayEndMin)}).`)
   }
 
-  if (!block.text.trim()) add('warning', 'NO_TEXT', 'No note text — add detail for what you did.')
+  if (!block.text.trim()) add('warning', 'NO_TEXT', 'No note text - add detail for what you did.')
 
   return issues
 }

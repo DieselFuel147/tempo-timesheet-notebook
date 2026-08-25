@@ -48,7 +48,7 @@ export function notebookBlockToWorklogInput(
 ): WorklogInput {
   const minutes = notebookBlockDurationMinutes(block)
   if (minutes === null || minutes <= 0 || block.startMinute === null) {
-    throw new Error(`Block has an invalid time range (${block.startMinute}–${block.endMinute})`)
+    throw new Error(`Block has an invalid time range (${block.startMinute}-${block.endMinute})`)
   }
 
   const hours = Math.floor(block.startMinute / 60)

@@ -150,7 +150,7 @@ function NotebookTimeFields({ block, nowMinute, onTimeChange, onDurationChange }
           slotProps={{
             htmlInput: {
               'aria-label': edge === 'start' ? 'Start time' : 'End time',
-              title: 'Type h:mm then A or P — e.g. "945p" for 9:45 pm',
+              title: 'Type h:mm then A or P - e.g. "945p" for 9:45 pm',
               spellCheck: false,
               maxLength: 9,
             },
@@ -175,7 +175,7 @@ function NotebookTimeFields({ block, nowMinute, onTimeChange, onDurationChange }
     <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', flexShrink: 0 }}>
       {renderTimeField('start', startValue, false)}
       <Typography variant="caption" color="text.secondary">
-        –
+        -
       </Typography>
       {renderTimeField('end', endValue, block.startMinute === null)}
       <TextField
