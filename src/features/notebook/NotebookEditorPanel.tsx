@@ -17,7 +17,17 @@ import {
 import type { NotebookBlock } from '@shared/types'
 import { autoSummary, isLunchBlock, isPersistedNotebookBlock } from '@shared/notebook'
 import type { ValidationIssue } from '@shared/validation'
-import { formatHours, minutesToHHmm, parseDuration } from '@app/dateutil'
+import {
+  complete12hDraftMinutes,
+  EMPTY_TIME_12H_DRAFT,
+  format12hDraft,
+  formatHours,
+  minutesTo12hTime,
+  minutesToHHmm,
+  parse12hDraftInput,
+  parseDuration,
+  type Time12hDraft,
+} from '@app/dateutil'
 import { assignBlockColors } from '@app/features/notebook/blockColors'
 import { blockSyncLabel } from '@app/features/sync/syncStatus'
 import { LINK_PULSE_MS } from '@app/features/linking/blockLink'
@@ -47,22 +57,50 @@ function NotebookTicketField({ block, invalid, adminTicket, onTicketChange }: No
 
 interface NotebookTimeFieldsProps {
   block: NotebookBlock
+  nowMinute: number
   onTimeChange: (edge: 'start' | 'end', value: string) => void
   onDurationChange: (value: string) => void
 }
 
-// Compact, editable start–end times for retroactive entry. Native "HH:mm"
-// inputs map straight onto the block's minutes-from-midnight model; the end is
-// disabled until a start exists so the block never lands in an invalid state.
-function NotebookTimeFields({ block, onTimeChange, onDurationChange }: NotebookTimeFieldsProps) {
-  const startValue = block.startMinute === null ? '' : minutesToHHmm(block.startMinute)
-  const endValue = block.endMinute === null ? '' : minutesToHHmm(block.endMinute)
+// Grey overlay text drawn over an empty time field: the live-clock hint while
+// unfocused, or the blank scaffold while the field is being edited.
+const TIME_FIELD_OVERLAY_SX = {
+  position: 'absolute',
+  inset: 0,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  pointerEvents: 'none',
+  color: 'text.disabled',
+  fontFamily: MONO_FONT,
+  fontSize: 13,
+} as const
+
+// Compact, editable start–end times for retroactive entry, as masked "h:mm
+// am/pm" text fields. The native time control was replaced because WebKit
+// paints empty segments with real-looking digits that read as recorded times,
+// offers no way to tell a typed digit from its own sample, and silently
+// resets half-finished entries. Here the field only ever shows what was
+// actually typed: a complete valid entry commits immediately (unlocking the
+// end field), anything incomplete reverts on blur. The end is disabled until
+// a start exists so the block never lands in an invalid state.
+function NotebookTimeFields({ block, nowMinute, onTimeChange, onDurationChange }: NotebookTimeFieldsProps) {
+  const startValue = block.startMinute === null ? '' : minutesTo12hTime(block.startMinute)
+  const endValue = block.endMinute === null ? '' : minutesTo12hTime(block.endMinute)
   const durationMinutes = block.startMinute !== null && block.endMinute !== null
     ? Math.max(0, block.endMinute - block.startMinute)
     : null
   const displayDuration = durationMinutes !== null ? formatHours(durationMinutes) : ''
   const [isEditing, setIsEditing] = useState(false)
   const [editValue, setEditValue] = useState('')
+  // In-progress drafts per edge while a field is focused; committed values in
+  // `block` take back over on blur so abandoned drafts simply revert.
+  const [drafts, setDrafts] = useState<{ start: Time12hDraft; end: Time12hDraft }>({
+    start: EMPTY_TIME_12H_DRAFT,
+    end: EMPTY_TIME_12H_DRAFT,
+  })
+  const [focusedEdge, setFocusedEdge] = useState<'start' | 'end' | null>(null)
+  const liveClockLabel = minutesTo12hTime(nowMinute)
   const timeFieldSx = { width: 104, '& .MuiInputBase-root': { backgroundColor: 'background.paper' }, '& input': { fontFamily: MONO_FONT, fontSize: 13, py: 0.5, px: 0.5, textAlign: 'center', lineHeight: 1 } }
   const durationFieldSx = { width: 72, '& .MuiInputBase-root': { backgroundColor: 'background.paper' }, '& input': { fontFamily: MONO_FONT, fontSize: 13, py: 0.5, px: 0.5, textAlign: 'center', lineHeight: 1 } }
 
@@ -83,28 +121,63 @@ function NotebookTimeFields({ block, onTimeChange, onDurationChange }: NotebookT
     setEditValue(displayDuration)
   }, [displayDuration])
 
+  const renderTimeField = (edge: 'start' | 'end', value: string, disabled: boolean) => {
+    const isFocused = focusedEdge === edge
+    const draft = drafts[edge]
+    return (
+      <Box sx={{ position: 'relative', flexShrink: 0 }}>
+        <TextField
+          size="small"
+          value={isFocused ? format12hDraft(draft) : value}
+          onChange={(event) => {
+            const nextDraft = parse12hDraftInput(event.target.value)
+            setDrafts((prev) => ({ ...prev, [edge]: nextDraft }))
+            // Committing mid-edit keeps the field usable without leaving it:
+            // a complete entry unlocks the end field right away.
+            const minutes = complete12hDraftMinutes(nextDraft)
+            if (minutes !== null) onTimeChange(edge, minutesToHHmm(minutes))
+          }}
+          onFocus={() => {
+            setFocusedEdge(edge)
+            setDrafts((prev) => ({
+              ...prev,
+              // Reparsing the committed display seeds edits of existing times.
+              [edge]: value === '' ? EMPTY_TIME_12H_DRAFT : parse12hDraftInput(value),
+            }))
+          }}
+          onBlur={() => setFocusedEdge(null)}
+          disabled={disabled}
+          slotProps={{
+            htmlInput: {
+              'aria-label': edge === 'start' ? 'Start time' : 'End time',
+              title: 'Type h:mm then A or P — e.g. "945p" for 9:45 pm',
+              spellCheck: false,
+              maxLength: 9,
+            },
+          }}
+          sx={timeFieldSx}
+        />
+        {isFocused && draft.hour === '' && draft.minute === '' && (
+          <Typography aria-hidden sx={TIME_FIELD_OVERLAY_SX}>
+            {'--:-- --'}
+          </Typography>
+        )}
+        {!isFocused && value === '' && (
+          <Typography aria-hidden sx={TIME_FIELD_OVERLAY_SX}>
+            {liveClockLabel}
+          </Typography>
+        )}
+      </Box>
+    )
+  }
+
   return (
     <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', flexShrink: 0 }}>
-      <TextField
-        size="small"
-        type="time"
-        value={startValue}
-        onChange={(event) => onTimeChange('start', event.target.value)}
-        slotProps={{ htmlInput: { 'aria-label': 'Start time' } }}
-        sx={timeFieldSx}
-      />
+      {renderTimeField('start', startValue, false)}
       <Typography variant="caption" color="text.secondary">
         –
       </Typography>
-      <TextField
-        size="small"
-        type="time"
-        value={endValue}
-        onChange={(event) => onTimeChange('end', event.target.value)}
-        disabled={block.startMinute === null}
-        slotProps={{ htmlInput: { 'aria-label': 'End time' } }}
-        sx={timeFieldSx}
-      />
+      {renderTimeField('end', endValue, block.startMinute === null)}
       <TextField
         size="small"
         value={isEditing ? editValue : displayDuration}
@@ -125,6 +198,8 @@ export interface NotebookEditorPanelProps {
   adminTicket: string
   issuesByBlock: Map<string, ValidationIssue[]>
   maxSummaryChars: number
+  /** Current minute-of-day for the viewed day; drives the live time hints. */
+  nowMinute: number
   /** Entry playing the attention pulse after a cross-panel jump. */
   pulseId: string | null
   /** Any click/focus inside a block card; App links it to the timeline. */
@@ -147,6 +222,7 @@ export const NotebookEditorPanel = memo(function NotebookEditorPanel({
   adminTicket,
   issuesByBlock,
   maxSummaryChars,
+  nowMinute,
   pulseId,
   onInteract,
   onTextChange,
@@ -234,7 +310,7 @@ export const NotebookEditorPanel = memo(function NotebookEditorPanel({
                       onTicketChange={(ticketId) => onTicketChange(block.id, ticketId)}
                     />
                   </Box>
-                  <NotebookTimeFields block={block} onTimeChange={(edge, value) => onTimeChange(block.id, edge, value)} onDurationChange={(value) => onDurationChange(block.id, value)} />
+                  <NotebookTimeFields block={block} nowMinute={nowMinute} onTimeChange={(edge, value) => onTimeChange(block.id, edge, value)} onDurationChange={(value) => onDurationChange(block.id, value)} />
                   {block.startMinute !== null && block.endMinute !== null && (
                     <Typography variant="caption" color="text.secondary" sx={{ fontFamily: MONO_FONT, whiteSpace: 'nowrap' }}>
                       {formatHours(block.endMinute - block.startMinute)}

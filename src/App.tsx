@@ -404,6 +404,7 @@ export function App() {
         adminTicket={settings.validation.adminTicket}
         issuesByBlock={issuesByBlock}
         maxSummaryChars={settings.validation.maxSummaryChars}
+        nowMinute={nowMinute}
         pulseId={linkPulse?.side === 'notebook' ? linkPulse.id : null}
         onInteract={handleNotebookInteract}
         onTextChange={handleTextChange}
