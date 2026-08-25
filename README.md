@@ -33,6 +33,12 @@ To setup the Jira and Tempo sync, open settings and follow the instructions for 
 
 You can also configure a local AI model for summarising long ticket notes into shorter descriptions for the tempo entry.
 
+## User Guide
+
+Accessible from with the app toolbar or the file below:
+
+[`User Guide`](./docs/user-guide.md)
+
 ### Updating
 
 On startup the app will check for updates, referencing the github releases, and prompt to install new ones.

@@ -40,6 +40,7 @@ import {
 import { resolveClickedEntrySpan } from '@app/features/timeline/dropTarget'
 import { startOfWeek, todayISO, weekDates } from './dateutil'
 import { SettingsPage } from '@app/features/settings/SettingsPage'
+import { GuideDialog } from '@app/features/guide/GuideDialog'
 import { readAppearance, writeAppearance, type Appearance } from './appearance'
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider'
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
@@ -111,6 +112,9 @@ export function App() {
     writeTimelineCollapsed(collapsed)
   }, [])
   const [showTempoWorklogs, setShowTempoWorklogs] = useState(true)
+  // Open guide dialog; sectionId deep-links to a specific guide section
+  // (e.g. panels can later open help scoped to themselves).
+  const [guideState, setGuideState] = useState<{ sectionId: string | null } | null>(null)
   const [filterMenuAnchor, setFilterMenuAnchor] = useState<HTMLElement | null>(null)
 
   useEffect(() => {
@@ -519,6 +523,7 @@ export function App() {
               clockLabel={clockLabel}
               isLiveTyping={isLiveTyping}
               updateVersion={headerUpdateVersion}
+              onOpenGuide={() => setGuideState({ sectionId: null })}
               onOpenLog={() => setView('log')}
               onOpenSettings={() => setView('settings')}
             />
@@ -621,6 +626,12 @@ export function App() {
             onEditOverride={handleGateEditOverride}
             onCancel={handleGateCancel}
             onPush={handleGatePush}
+          />
+
+          <GuideDialog
+            open={guideState !== null}
+            initialSectionId={guideState?.sectionId ?? null}
+            onClose={() => setGuideState(null)}
           />
 
           <ActivityToast
