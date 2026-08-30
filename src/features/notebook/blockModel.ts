@@ -1,6 +1,6 @@
 import type { NotebookBlock, NotebookDay } from '@shared/types'
 import { isUntrackedBlock, notebookBlockSummary } from '@shared/notebook'
-import { todayISO } from '@app/dateutil'
+import { todayISO, weekDates } from '@app/dateutil'
 
 export const DAY_MINUTES = 24 * 60
 
@@ -128,6 +128,39 @@ export function totalTrackedMinutes(blocks: NotebookBlock[], nowMinute: number):
     if (isUntrackedBlock(block)) return sum
     const duration = blockDuration(block, nowMinute)
     return sum + (duration && duration > 0 ? duration : 0)
+  }, 0)
+}
+
+/** Tracked minutes from closed blocks only. Open/pending blocks are excluded — they
+ * have no committed end time (and auto-close shortly), so a past/future day can't be
+ * valued against "now". Takes no clock input, so the result is stable. */
+export function totalClosedMinutes(blocks: NotebookBlock[]): number {
+  return blocks.reduce((sum, block) => {
+    if (isUntrackedBlock(block)) return sum
+    if (!block.closed || block.startMinute === null || block.endMinute === null) return sum
+    const duration = Math.max(0, block.endMinute - block.startMinute)
+    return sum + (duration > 0 ? duration : 0)
+  }, 0)
+}
+
+/** Sum of tracked minutes across the seven days (Mon–Sun) of `monday`'s week.
+ * The selected day's live in-memory copy is used for its date; every other day comes
+ * from the loaded `days` cache. Today counts open blocks up to the real clock (matching
+ * the per-day total); other days count closed blocks only, so an open block on a past/
+ * future date — which has no valid end time — is excluded. The result is identical no
+ * matter which day in the week is being viewed. */
+export function weekTrackedMinutes(
+  monday: string,
+  selectedDate: string,
+  day: NotebookDay | null,
+  days: Partial<Record<string, NotebookDay>>,
+): number {
+  const today = todayISO()
+  return weekDates(monday).reduce((sum, iso) => {
+    const source = iso === selectedDate ? day : days[iso]
+    if (!source) return sum
+    const minutes = iso === today ? totalTrackedMinutes(source.blocks, wallClockMinuteForDate(iso)) : totalClosedMinutes(source.blocks)
+    return sum + minutes
   }, 0)
 }
 

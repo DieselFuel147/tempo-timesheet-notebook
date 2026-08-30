@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest'
-import type { NotebookBlock } from '@shared/types'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { NotebookBlock, NotebookDay } from '@shared/types'
+import { weekDates } from '@app/dateutil'
 import {
   DAY_MINUTES,
   MIN_BLOCK_DURATION_MINUTES,
@@ -12,8 +13,10 @@ import {
   markBlockDirty,
   normalizeNotebookDay,
   persistedNotebookDay,
+  totalClosedMinutes,
   totalTrackedMinutes,
   wallClockMinuteForDate,
+  weekTrackedMinutes,
 } from './blockModel'
 
 function block(overrides: Partial<NotebookBlock> = {}): NotebookBlock {
@@ -28,6 +31,10 @@ function block(overrides: Partial<NotebookBlock> = {}): NotebookBlock {
     summaryOverride: null,
     ...overrides,
   }
+}
+
+function makeDay(date: string, blocks: NotebookBlock[]): NotebookDay {
+  return { date, blocks }
 }
 
 describe('block model', () => {
@@ -166,5 +173,80 @@ describe('block model', () => {
     expect(effectiveIdleThresholdMs()).toBeGreaterThan(0)
     expect(MIN_BLOCK_DURATION_MINUTES).toBe(1)
     expect(DAY_MINUTES).toBe(1440)
+  })
+})
+
+describe('totalClosedMinutes', () => {
+  it('sums closed tracked blocks and ignores open ones', () => {
+    const blocks = [
+      block({ id: 'a', startMinute: 9 * 60, endMinute: 12 * 60 }), // closed, 3h
+      block({ id: 'b', startMinute: 13 * 60, endMinute: null, closed: false }), // open → excluded
+    ]
+    expect(totalClosedMinutes(blocks)).toBe(3 * 60)
+  })
+
+  it('excludes untracked blocks', () => {
+    const blocks = [
+      block({ id: 'a', startMinute: 9 * 60, endMinute: 12 * 60 }), // 3h
+      block({ id: 'u', ticketId: 'UNTRACKED', startMinute: 12 * 60, endMinute: 13 * 60 }), // untracked → excluded
+    ]
+    expect(totalClosedMinutes(blocks)).toBe(3 * 60)
+  })
+
+  it('never goes negative when an end precedes its start', () => {
+    const blocks = [block({ id: 'a', startMinute: 12 * 60, endMinute: 9 * 60 })]
+    expect(totalClosedMinutes(blocks)).toBe(0)
+  })
+})
+
+describe('weekTrackedMinutes', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+
+  it('is identical no matter which day in the week is selected', () => {
+    // "today" sits outside this week, so every day counts closed blocks only.
+    vi.setSystemTime(new Date(2025, 0, 13, 9, 0))
+    const monday = '2025-01-06'
+    const days: Partial<Record<string, NotebookDay>> = {
+      '2025-01-06': makeDay('2025-01-06', [block({ startMinute: 9 * 60, endMinute: 12 * 60 })]), // 3h
+      '2025-01-07': makeDay('2025-01-07', [block({ startMinute: 9 * 60, endMinute: 17 * 60 })]), // 8h
+      '2025-01-08': makeDay('2025-01-08', [block({ startMinute: 10 * 60, endMinute: 15 * 60 })]), // 5h
+      '2025-01-09': makeDay('2025-01-09', []),
+      '2025-01-10': makeDay('2025-01-10', [block({ startMinute: 8 * 60, endMinute: 12 * 60 + 30 })]), // 4.5h
+      '2025-01-11': makeDay('2025-01-11', []),
+      '2025-01-12': makeDay('2025-01-12', [block({ startMinute: 9 * 60 + 30, endMinute: 16 * 60 })]), // 6.5h
+    }
+    const expected = 3 * 60 + 8 * 60 + 5 * 60 + 4.5 * 60 + 6.5 * 60 // = 1620
+    for (const iso of weekDates(monday)) {
+      expect(weekTrackedMinutes(monday, iso, days[iso]!, days)).toBe(expected)
+    }
+  })
+
+  it('counts today open blocks up to the real clock, regardless of selection', () => {
+    vi.setSystemTime(new Date(2025, 0, 8, 14, 30)) // today = Wed 2:30pm
+    const monday = '2025-01-06' // week contains today (2025-01-08)
+    const openToday = [block({ startMinute: 9 * 60, endMinute: null, closed: false })] // open since 9am
+    const days = { '2025-01-08': makeDay('2025-01-08', openToday) }
+    // 9:00 → 14:30 = 5.5h, whether today is the selected day or not.
+    expect(weekTrackedMinutes(monday, '2025-01-08', days['2025-01-08']!, days)).toBe(330)
+    expect(weekTrackedMinutes(monday, '2025-01-06', makeDay('2025-01-06', []), days)).toBe(330)
+  })
+
+  it('excludes open blocks on non-today days', () => {
+    vi.setSystemTime(new Date(2025, 0, 13, 9, 0)) // today outside the week
+    const monday = '2025-01-06'
+    const days: Partial<Record<string, NotebookDay>> = {
+      '2025-01-06': makeDay('2025-01-06', [block({ startMinute: 9 * 60, endMinute: null, closed: false })]), // open → excluded
+      '2025-01-07': makeDay('2025-01-07', [block({ startMinute: 9 * 60, endMinute: 12 * 60 })]), // closed 3h
+    }
+    expect(weekTrackedMinutes(monday, '2025-01-06', days['2025-01-06']!, days)).toBe(3 * 60)
+  })
+
+  it('ignores days that have not loaded yet', () => {
+    vi.setSystemTime(new Date(2025, 0, 13, 9, 0))
+    const monday = '2025-01-06'
+    // Only one of the seven days is present; the missing six contribute nothing.
+    const days = { '2025-01-06': makeDay('2025-01-06', [block({ startMinute: 9 * 60, endMinute: 12 * 60 }) ]) }
+    expect(weekTrackedMinutes(monday, '2025-01-06', days['2025-01-06']!, days)).toBe(3 * 60)
   })
 })

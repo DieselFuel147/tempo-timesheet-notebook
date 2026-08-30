@@ -8,7 +8,7 @@ import { isPersistedNotebookBlock, isUntrackedBlock, type TruncatedSummaryEntry 
 import { validateNotebookDay, type ValidationIssue } from '@shared/validation'
 import { api } from '@app/api'
 import { isPushableBlock } from '@app/features/sync/syncStatus'
-import { getTimedBlocks, persistedNotebookDay, totalTrackedMinutes, wallClockMinuteForDate } from '@app/features/notebook/blockModel'
+import { getTimedBlocks, persistedNotebookDay, totalTrackedMinutes, weekTrackedMinutes } from '@app/features/notebook/blockModel'
 import { NotebookEditorPanel } from '@app/features/notebook/NotebookEditorPanel'
 import { useNotebookWeek } from '@app/features/notebook/useNotebookWeek'
 import { TimelinePanel } from '@app/features/timeline/TimelinePanel'
@@ -38,7 +38,7 @@ import {
   type LinkSide,
 } from '@app/features/linking/blockLink'
 import { resolveClickedEntrySpan } from '@app/features/timeline/dropTarget'
-import { startOfWeek, todayISO, weekDates } from './dateutil'
+import { startOfWeek, todayISO } from './dateutil'
 import { SettingsPage } from '@app/features/settings/SettingsPage'
 import { GuideDialog } from '@app/features/guide/GuideDialog'
 import { readAppearance, writeAppearance, type Appearance } from './appearance'
@@ -280,14 +280,8 @@ export function App() {
     [day, nowMinute, tick],
   )
   const weekTotalMinutes = useMemo(
-    () =>
-      weekDates(weekMonday).reduce((sum, iso) => {
-        const source = iso === date ? day : weekDays[iso]
-        if (!source) return sum
-        const nowForDay = iso === date ? nowMinute : wallClockMinuteForDate(iso)
-        return sum + totalTrackedMinutes(source.blocks, nowForDay)
-      }, 0),
-    [weekMonday, weekDays, date, day, nowMinute, tick],
+    () => weekTrackedMinutes(weekMonday, date, day, weekDays),
+    [weekMonday, date, day, weekDays, tick],
   )
   // Untracked entries persist but stay invisible to every stat: not tracked
   // time, not a ticket, never pushable (isPushableBlock already excludes them).
