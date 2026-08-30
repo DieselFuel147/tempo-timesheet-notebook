@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { NotebookDay } from '@shared/types'
 import { api } from '@app/api'
 import { weekDates } from '@app/dateutil'
@@ -26,10 +26,8 @@ export function useNotebookWeek({ monday, selectedDate, selectedDay }: Options) 
     cache.current.set(selectedDate, selectedDay)
   }
 
-  useEffect(() => {
-    let cancelled = false
-
-    const publishKnownDays = () =>
+  const publishKnownDays = useCallback(
+    () =>
       setDays(() => {
         const next: Partial<Record<string, NotebookDay>> = {}
         for (const iso of weekDatesList) {
@@ -37,7 +35,18 @@ export function useNotebookWeek({ monday, selectedDate, selectedDay }: Options) 
           if (cached) next[iso] = cached
         }
         return next
-      })
+      }),
+    [weekDatesList],
+  )
+
+  // Re-publish whenever the week or the live selected day changes, so edits and
+  // intra-week navigation keep every cached day fresh in the returned snapshot.
+  useEffect(() => {
+    publishKnownDays()
+  }, [publishKnownDays, selectedDate, selectedDay])
+
+  useEffect(() => {
+    let cancelled = false
 
     publishKnownDays()
 
@@ -57,7 +66,7 @@ export function useNotebookWeek({ monday, selectedDate, selectedDay }: Options) 
     return () => {
       cancelled = true
     }
-  }, [weekDatesList])
+  }, [weekDatesList, publishKnownDays])
 
   return days
 }
