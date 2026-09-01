@@ -65,6 +65,7 @@ The whole app is one window: a header, a date toolbar, the Notebook and Timeline
 - The small admin button stamps the configured general-admin ticket (default `ADMINTICKET-123`, adjustable in Settings).
 - **UNTRACKED** entries are deliberate gap-fillers for time you do not want to log: they render on the timeline and count towards nothing - validation ignores them and pushes skip them.
 - The uploaded summary is your explicit **summary override** if set, otherwise the first line of your notes trimmed to the character limit (an ellipsis marks truncation). Press **Suggest** to have the local AI draft one from the notes.
+- The start/end times are segmented `hh:mm am/pm` fields: click a part and type over it, backspace clears just that part, arrow keys step it, and left/right move between parts. Typing runs straight through, so `0945p` is 9:45 pm. A part-finished time is discarded when you leave the field.
 - Editing times by duration adjusts the end time; everything autosaves as you type.
 - Editing an already-synced entry clears its synced marker so it goes out again on your next push. Pushes always create worklogs - the earlier copy in Tempo stays until you delete it there.
 

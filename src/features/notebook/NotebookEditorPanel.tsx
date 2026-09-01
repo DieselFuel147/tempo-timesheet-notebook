@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useState, type SyntheticEvent } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type SyntheticEvent } from 'react'
 import AssistantIcon from '@mui/icons-material/Assistant'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined'
 import {
@@ -14,20 +14,12 @@ import {
   Typography,
   useTheme,
 } from '@mui/material'
+import { TimeField } from '@mui/x-date-pickers/TimeField'
+import dayjs, { type Dayjs } from 'dayjs'
 import type { NotebookBlock } from '@shared/types'
 import { autoSummary, isPersistedNotebookBlock, isUntrackedBlock } from '@shared/notebook'
 import type { ValidationIssue } from '@shared/validation'
-import {
-  complete12hDraftMinutes,
-  EMPTY_TIME_12H_DRAFT,
-  format12hDraft,
-  formatHours,
-  minutesTo12hTime,
-  minutesToHHmm,
-  parse12hDraftInput,
-  parseDuration,
-  type Time12hDraft,
-} from '@app/dateutil'
+import { formatHours, minutesTo12hTime, parseDuration } from '@app/dateutil'
 import { assignBlockColors } from '@app/features/notebook/blockColors'
 import { blockSyncLabel } from '@app/features/sync/syncStatus'
 import { LINK_PULSE_MS } from '@app/features/linking/blockLink'
@@ -62,8 +54,9 @@ interface NotebookTimeFieldsProps {
   onDurationChange: (value: string) => void
 }
 
-// Grey overlay text drawn over an empty time field: the live-clock hint while
-// unfocused, or the blank scaffold while the field is being edited.
+// Grey overlay text drawn over an empty, unfocused time field: the live-clock
+// hint. It replaces the field's own "hh:mm aa" placeholder in that one state,
+// so a blank field still suggests what "now" is for retroactive entry.
 const TIME_FIELD_OVERLAY_SX = {
   position: 'absolute',
   inset: 0,
@@ -76,32 +69,46 @@ const TIME_FIELD_OVERLAY_SX = {
   fontSize: 13,
 } as const
 
-// Compact, editable start–end times for retroactive entry, as masked "h:mm
-// am/pm" text fields. The native time control was replaced because WebKit
-// paints empty segments with real-looking digits that read as recorded times,
-// offers no way to tell a typed digit from its own sample, and silently
-// resets half-finished entries. Here the field only ever shows what was
-// actually typed: a complete valid entry commits immediately (unlocking the
-// end field), anything incomplete reverts on blur. The end is disabled until
-// a start exists so the block never lands in an invalid state.
+// Two-digit hour so the mask keeps a fixed width and the digits never shift
+// under the cursor as the hour crosses ten.
+const TIME_FIELD_FORMAT = 'hh:mm a'
+
+// Compact, editable start-end times for retroactive entry. The field only
+// cares about h:mm, but MUI's masked field works in whole dates; anchoring
+// them to the block's own day keeps the value referentially stable across
+// re-renders (the live clock re-renders this card every minute), which is what
+// stops the field rebuilding its sections while they're being edited.
+function blockTimeValue(date: string, minutes: number | null): Dayjs | null {
+  return minutes === null ? null : dayjs(date).startOf('day').add(minutes, 'minute')
+}
+
+// Start-end times as a segmented "hh:mm am/pm" mask. The native time control
+// was dropped first because WebKit paints empty segments with real-looking
+// digits; the hand-rolled text mask that replaced it re-parsed the whole
+// string on every keystroke, so editing one digit mid-field shifted the rest
+// along and threw the caret to the end. MUI's TimeField edits each section in
+// place instead - click a section and type to overwrite it, backspace clears
+// just that section, arrows step it - which is how a masked field is expected
+// to behave. Only a complete time is committed (that unlocks the end field
+// right away); anything half-typed is dropped when the field is left, so the
+// block never lands in an invalid state.
 function NotebookTimeFields({ block, nowMinute, onTimeChange, onDurationChange }: NotebookTimeFieldsProps) {
-  const startValue = block.startMinute === null ? '' : minutesTo12hTime(block.startMinute)
-  const endValue = block.endMinute === null ? '' : minutesTo12hTime(block.endMinute)
+  const startValue = useMemo(() => blockTimeValue(block.date, block.startMinute), [block.date, block.startMinute])
+  const endValue = useMemo(() => blockTimeValue(block.date, block.endMinute), [block.date, block.endMinute])
   const durationMinutes = block.startMinute !== null && block.endMinute !== null
     ? Math.max(0, block.endMinute - block.startMinute)
     : null
   const displayDuration = durationMinutes !== null ? formatHours(durationMinutes) : ''
   const [isEditing, setIsEditing] = useState(false)
   const [editValue, setEditValue] = useState('')
-  // In-progress drafts per edge while a field is focused; committed values in
-  // `block` take back over on blur so abandoned drafts simply revert.
-  const [drafts, setDrafts] = useState<{ start: Time12hDraft; end: Time12hDraft }>({
-    start: EMPTY_TIME_12H_DRAFT,
-    end: EMPTY_TIME_12H_DRAFT,
-  })
   const [focusedEdge, setFocusedEdge] = useState<'start' | 'end' | null>(null)
+  // Remount counters, one per edge. Bumping one rebuilds that field's sections
+  // from the value the block actually holds, which is how a half-typed entry
+  // is discarded on blur - MUI keeps partial sections otherwise, and they'd
+  // read as a recorded time the entry doesn't have.
+  const [revertCounts, setRevertCounts] = useState({ start: 0, end: 0 })
+  const halfTyped = useRef({ start: false, end: false })
   const liveClockLabel = minutesTo12hTime(nowMinute)
-  const timeFieldSx = { width: 104, '& .MuiInputBase-root': { backgroundColor: 'background.paper' }, '& input': { fontFamily: MONO_FONT, fontSize: 13, py: 0.5, px: 0.5, textAlign: 'center', lineHeight: 1 } }
   const durationFieldSx = { width: 72, '& .MuiInputBase-root': { backgroundColor: 'background.paper' }, '& input': { fontFamily: MONO_FONT, fontSize: 13, py: 0.5, px: 0.5, textAlign: 'center', lineHeight: 1 } }
 
   useEffect(() => {
@@ -121,48 +128,72 @@ function NotebookTimeFields({ block, nowMinute, onTimeChange, onDurationChange }
     setEditValue(displayDuration)
   }, [displayDuration])
 
-  const renderTimeField = (edge: 'start' | 'end', value: string, disabled: boolean) => {
+  const renderTimeField = (edge: 'start' | 'end', value: Dayjs | null, disabled: boolean) => {
     const isFocused = focusedEdge === edge
-    const draft = drafts[edge]
+    const showLiveClock = !isFocused && value === null
     return (
-      <Box sx={{ position: 'relative', flexShrink: 0 }}>
-        <TextField
+      <Box sx={{ position: 'relative', flexShrink: 0 }} key={edge}>
+        <TimeField
+          key={revertCounts[edge]}
+          value={value}
+          format={TIME_FIELD_FORMAT}
           size="small"
-          value={isFocused ? format12hDraft(draft) : value}
-          onChange={(event) => {
-            const nextDraft = parse12hDraftInput(event.target.value)
-            setDrafts((prev) => ({ ...prev, [edge]: nextDraft }))
-            // Committing mid-edit keeps the field usable without leaving it:
-            // a complete entry unlocks the end field right away.
-            const minutes = complete12hDraftMinutes(nextDraft)
-            if (minutes !== null) onTimeChange(edge, minutesToHHmm(minutes))
+          disabled={disabled}
+          onChange={(next) => {
+            // Sections are filled one at a time, so mid-edit the field reports
+            // null. Committing only complete times means clearing a section to
+            // retype it can't wipe the entry's time out from under the user.
+            const complete = next !== null && next.isValid()
+            halfTyped.current[edge] = !complete
+            if (complete) onTimeChange(edge, next.format('HH:mm'))
           }}
           onFocus={() => {
             setFocusedEdge(edge)
-            setDrafts((prev) => ({
-              ...prev,
-              // Reparsing the committed display seeds edits of existing times.
-              [edge]: value === '' ? EMPTY_TIME_12H_DRAFT : parse12hDraftInput(value),
-            }))
+            halfTyped.current[edge] = false
           }}
-          onBlur={() => setFocusedEdge(null)}
-          disabled={disabled}
+          onBlur={() => {
+            setFocusedEdge(null)
+            if (!halfTyped.current[edge]) return
+            halfTyped.current[edge] = false
+            setRevertCounts((prev) => ({ ...prev, [edge]: prev[edge] + 1 }))
+          }}
           slotProps={{
-            htmlInput: {
-              'aria-label': edge === 'start' ? 'Start time' : 'End time',
-              title: 'Type h:mm then A or P - e.g. "945p" for 9:45 pm',
-              spellCheck: false,
-              maxLength: 9,
+            textField: {
+              slotProps: {
+                input: {
+                  'aria-label': edge === 'start' ? 'Start time' : 'End time',
+                  title: 'Type the hour, minutes then a or p - e.g. "0945p" for 9:45 pm',
+                },
+              },
             },
           }}
-          sx={timeFieldSx}
+          sx={{
+            width: 104,
+            '& .MuiPickersOutlinedInput-root': { backgroundColor: 'background.paper', px: 0.5 },
+            '& .MuiPickersInputBase-sectionsContainer': {
+              // The mask's own width baseline is 182px; let it size to the
+              // sections instead so they sit centred like the duration field.
+              width: 'auto',
+              justifyContent: 'center',
+              py: 0.5,
+              fontFamily: MONO_FONT,
+              fontSize: 13,
+              lineHeight: 1,
+              // The live-clock hint stands in for the placeholder, so blank
+              // the mask's own "hh:mm aa" rather than stacking the two. Colour
+              // rather than visibility: the container has to stay hit-testable
+              // or clicking an empty field wouldn't select a section.
+              ...(showLiveClock && { color: 'transparent' }),
+            },
+            // The section spans re-declare the body font, so point them back
+            // at the mono stack set on their container.
+            '& .MuiPickersSectionList-section, & .MuiPickersInputBase-sectionContent': {
+              fontFamily: 'inherit',
+              lineHeight: 'inherit',
+            },
+          }}
         />
-        {isFocused && draft.hour === '' && draft.minute === '' && (
-          <Typography aria-hidden sx={TIME_FIELD_OVERLAY_SX}>
-            {'--:-- --'}
-          </Typography>
-        )}
-        {!isFocused && value === '' && (
+        {showLiveClock && (
           <Typography aria-hidden sx={TIME_FIELD_OVERLAY_SX}>
             {liveClockLabel}
           </Typography>
